@@ -1,2 +1,2 @@
-# phm-multimorbidity
-code and metadata for the feasibility project for BNSSG ICB
+# Multimorbidity and the exposome
+Code for a project on links between the exposome (data linkage code can be found in https://github.com/eyles-ec/epri-england) and mulitmorbidity, measured using Cambridge Morbidity Score segments. More information about the exposome data can be found in the [README](https://github.com/eyles-ec/epri-england/blob/main/README.md) on the epri-england repo. The data from the Bristol, North Somereset, and South Gloucestershire (BNSSG) Integrated Care System was transferred securely from the BNSSG Integrated Care Board under ethical approval from the University of Bristol (approval 21924).
