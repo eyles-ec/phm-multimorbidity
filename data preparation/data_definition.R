@@ -31,10 +31,10 @@ all <- read.csv("./linked/all_england_combined_CSV.csv")
 #remove uneeded columns by keeping project-relevant covariates
 all <- all %>%
   select(LSOA21CD, population, households, popden, unemp, good_health, fair_health, poor_health, asian, black, mixed, white, 
-         other, under19, a20_29, a30_39, a40_49, a50_64, over64, IMD25, IMD25_decile, benzene_2024_mean_ugm3, 
-         nox_2024_mean_ugm3, ozone_2024days_over_120ugm3, pm10_2024_mean_ugm3, pm2_5_2024_mean_ugm3, so2_2024_mean_ugm3, 
-         total_road_m, n_intersections, area_km2, road_density_km_per_km2, intersection_density_per_km2, chn2024, 
-         Agriculture, Forest..open.land.and.water, Outdoor.recreation, Residential.gardens)
+         other, IMD25, IMD25_decile, benzene_2024_mean_ugm3, nox_2024_mean_ugm3, ozone_2024days_over_120ugm3,
+         pm10_2024_mean_ugm3, pm2_5_2024_mean_ugm3, so2_2024_mean_ugm3, total_road_m, n_intersections, area_km2, 
+         road_density_km_per_km2, intersection_density_per_km2, chn2024, Agriculture, Forest..open.land.and.water, 
+         Outdoor.recreation, Residential.gardens)
 
 #load in BNSSG data
 
