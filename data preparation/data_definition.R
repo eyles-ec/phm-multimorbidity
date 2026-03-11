@@ -74,7 +74,21 @@ bnssg <- all %>%
          bnssg_cols[bnssg_cols != "LSOA21CD"],
          everything())
 
-#save complete file for analysis, create directory if an issue
+#make a long format dataset for analysis
+
+bnssg_long <- bnssg %>%
+  pivot_longer(
+    cols = matches("_(21|22|23|24)$"),
+    names_to = c(".value", "year"),
+    names_pattern = "(.*)_(\\d{2})$"
+  ) %>%
+  mutate(
+    year = as.numeric(paste0("20", year))
+  )
+
+#save complete long and wide files for analysis, create directory if an issue
 dir.create("./BNSSG/linked", recursive = TRUE, showWarnings = FALSE)
 
-write.csv(bnssg, "./BNSSG/linked/bnssg.csv", row.names = FALSE)
+write.csv(bnssg, "./BNSSG/linked/bnssg_wide.csv", row.names = FALSE)
+write.csv(bnssg_long, "./BNSSG/linked/bnssg_long.csv", row.names = FALSE)
+

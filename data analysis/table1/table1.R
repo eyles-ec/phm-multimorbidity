@@ -71,7 +71,7 @@ source("../paths.R")
 setwd(wd)
 
 #load analysis dataset
-bnssg <- read.csv("./BNSSG/linked/bnssg.csv")
+bnssg <- read.csv("./BNSSG/linked/bnssg_wide.csv")
 
 #variable labels for the table (nicer than just using the name) 
 variable_labels <- c(

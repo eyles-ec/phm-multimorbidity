@@ -15,7 +15,7 @@ source("../paths.R")
 setwd(wd)
 
 #load analysis dataset
-bnssg_csv <- read.csv("./BNSSG/linked/bnssg.csv")
+bnssg_csv <- read.csv("./BNSSG/linked/bnssg_long.csv")
 
 #pull out LSOAS
 bnssg_lsoas <- bnssg$LSOA21CD
@@ -46,10 +46,10 @@ neighbour_empty
 neighbour_weights <- nb2listw(neighbour_list, style = "B")
 
 #calculate spatial lag of % in segments 4_5
-cms_lag <- lag.listw(neighbour_weights, bnssg$swd_pct_seg4_5_21)
+cms_lag <- lag.listw(neighbour_weights, bnssg$swd_pct_seg4_5)
 
 #calculate global G statistic (Getis-Ord global G)
-globalG.test(bnssg$swd_pct_seg4_5_24, neighbour_weights)
+globalG.test(bnssg$swd_pct_seg4_5, neighbour_weights)
 
 #test local spatial autocorrelation
 
@@ -58,13 +58,13 @@ bnssg_nbours <- bnssg %>%
   mutate(
     nbours = st_contiguity(geometry),
     weights = st_weights(nbours),
-    cms_local_lag = st_lag(bnssg$swd_pct_seg4_5_21, nbours, weights)
+    cms_local_lag = st_lag(bnssg$swd_pct_seg4_5, nbours, weights)
   )
 
 #calculate local getis-ord using local_g_perm
 bnssg_hotspots <- bnssg_nbours %>%
   mutate(
-    Gi = local_g_perm(bnssg$swd_pct_seg4_5_21, nbours, weights, nsim = 5000) 
+    Gi = local_g_perm(bnssg$swd_pct_seg4_5, nbours, weights, nsim = 5000) 
     #use 5000 MonteCarlo simulations
   ) %>%
   unnest(Gi) #data structure step to remove gi from dataframe
