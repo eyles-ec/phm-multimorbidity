@@ -35,6 +35,67 @@ impute_knn <- function(var, bnssg, coords, k = 5) {
 }
 
 #function for enet models
+enet <- function(df,
+                 outcome,
+                 lw,                
+                 exclude_vars = NULL,
+                 alpha = 0.5,
+                 nfolds = 10,
+                 seed = 123) {
+  
+  df <- as.data.frame(df)
+  
+  #remove existing lag columns if they exist
+  df <- df |> dplyr::select(-dplyr::matches("^lag_"))
+  
+  #by outcome spatial lag calculation 
+  lag_name <- paste0("lag_", outcome)
+  df[[lag_name]] <- as.numeric(spdep::lag.listw(lw, df[[outcome]]))
+  
+  #exclude outcomes from predictors
+  predictors_only <- df |> dplyr::select(-dplyr::all_of(outcome))
+  
+  #build model matrix, specifying dummy variables (year, local authority)
+  X <- model.matrix(
+    ~ . + factor(year) + factor(LAD22NM),
+    data = predictors_only
+  )
+  
+  #sanitise column names for inla
+  colnames(X) <- make.names(colnames(X))
+  
+  #fit the elastic net model
+  set.seed(seed)
+  enet <- glmnet::cv.glmnet(
+    x = X,
+    y = df[[outcome]],
+    alpha = alpha,
+    nfolds = nfolds,
+    family = "gaussian"
+  )
+  
+  #calculate residuals
+  fitted <- as.numeric(predict(enet, newx = X, s = "lambda.min"))
+  resid_enet <- paste0("resid_", outcome)
+  df[[resid_enet]] <- df[[outcome]] - fitted
+  
+  #pull out coefficients for inla
+  coef_mat <- coef(enet, s = "lambda.min")
+  selected <- rownames(coef_mat)[coef_mat[,1] != 0]
+  selected <- setdiff(make.names(selected), "(Intercept)")
+  
+  #return everything in a list
+  return(list(
+    df = df,
+    X = X,
+    enet_model = enet,
+    selected_vars = selected,
+    lambda.min = enet$lambda.min,
+    lambda.1se = enet$lambda.1se,
+    lag_col = lag_name,
+    resid = resid_enet
+  ))
+}
 
 #function for maps
 
@@ -83,8 +144,6 @@ exclude_vars <- c(
   "total_road_m",
   "n_intersections",
   "area_km2",
-  "Resident_pop_total",
-  "chn2024",
   "IMD25",
   "swd_median_age"
 )
@@ -121,60 +180,15 @@ bnssg_clean <- bnssg_clean %>%
 nb <- poly2nb(bnssg, queen = TRUE)
 lw <- nb2listw(nb, style = "B")
 
-#calculate a spatial lag for each outcome
-bnssg_clean$lag_swd_pct_seg4_5 <- lag.listw(lw, bnssg_clean$swd_pct_seg4_5)
-bnssg_clean$lag_swd_mean_cms <- lag.listw(lw, bnssg_clean$swd_mean_cms)
-bnssg_clean$lag_swd_median_cms <- lag.listw(lw, bnssg_clean$swd_median_cms)
-
 #drop geometry for modelling, only necessary if running as a pipeline
 bnssg_clean <- st_drop_geometry(bnssg_clean)
 
-predictors_only <- bnssg_clean %>% 
-  select(-all_of(outcomes))
-
-#build model matrix, specifying dummy variables (year, local authority)
-X <- model.matrix(
-  ~ . + factor(year) + factor(LAD22NM),
-  data = predictors_only
-)
-
-
-#sanitise names for later use in INLA in model matrix
-colnames(X) <- make.names(colnames(X))
-
-#vectors for each outcome 
-Y1 <- bnssg_clean$swd_pct_seg4_5
-Y2 <- bnssg_clean$swd_mean_cms
-Y3 <- bnssg_clean$swd_median_cms
-
-#fit LASSO models (alpha = 1), data are too multicollinear
-# lasso_1 <- cv.glmnet(X, Y1, alpha = 1)
-# lasso_2 <- cv.glmnet(X, Y2, alpha = 1)
-# lasso_3 <- cv.glmnet(X, Y3, alpha = 1)
-# 
-#fit Ridge models (alpha = 0), doesn't select variables
-# ridge_1 <- cv.glmnet(X, Y1, alpha = 0)
-# ridge_2 <- cv.glmnet(X, Y2, alpha = 0)
-# ridge_3 <- cv.glmnet(X, Y3, alpha = 0)
-
-#fit Elastic Net models (alpha = 0.5), more appropriate as variables are likely multicollinear in a grouped fashion
-#can perform variable selection here 
-enet_1 <- cv.glmnet(X, Y1, alpha = 0.5)
-enet_2 <- cv.glmnet(X, Y2, alpha = 0.5)
-enet_3 <- cv.glmnet(X, Y3, alpha = 0.5)
-
-#calc resids
-fitted_enet1  <- predict(enet_1,  newx = X, s = "lambda.min")
-fitted_enet2  <- predict(enet_2,  newx = X, s = "lambda.min")
-fitted_enet3  <- predict(enet_3,  newx = X, s = "lambda.min")
-
-bnssg$resid_enet1 <- as.numeric(Y1 - fitted_enet1)
-bnssg$resid_enet2 <- as.numeric(Y2 - fitted_enet2)
-bnssg$resid_enet3  <- as.numeric(Y1 - fitted_enet3)
 
 #neighbourlist, binary spatial weights
 nb <- poly2nb(bnssg, queen = TRUE)
 lw <- nb2listw(nb, style = "B")
+
+enet_model <- enet(bnssg_clean, "swd_pct_seg4_5", lw)
 
 #calc local getis ord on residuals using lw and map 
 bnssg$gi_enet1 <- as.numeric(localG(bnssg$resid_enet1, lw))
