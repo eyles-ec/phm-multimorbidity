@@ -7,6 +7,7 @@ library(spdep)
 library(FNN)
 library(INLA)
 library(tmap)
+tmap_options(version = 3)
 
 #inla has to be installed like this:
 #install.packages("INLA",repos=c(getOption("repos"),INLA="https://inla.r-inla-download.org/R/stable"), dep=TRUE)
@@ -16,7 +17,10 @@ library(tmap)
 # BiocManager::install(c("graph", "Rgraphviz"), dep=TRUE)
 
 #Function to impute one variable using k nearest neighbour, distance weighting, error catch if no missing
-impute_knn <- function(var, bnssg, coords, k = 5) {
+impute_knn <- function(var, 
+                       bnssg, 
+                       coords, 
+                       k = 5) {
   missing_idx <- which(is.na(bnssg[[var]]))
   present_idx <- which(!is.na(bnssg[[var]]))
   
@@ -79,10 +83,15 @@ enet <- function(df,
   resid_enet <- paste0("resid_", outcome)
   df[[resid_enet]] <- df[[outcome]] - fitted
   
-  #pull out coefficients for inla
+  #pull out coefficients for inla, remove intercept
   coef_mat <- coef(enet, s = "lambda.min")
   selected <- rownames(coef_mat)[coef_mat[,1] != 0]
-  selected <- setdiff(make.names(selected), "(Intercept)")
+  selected <- selected[selected != "(Intercept)" & selected != "Intercept"]
+  
+  #sanitise and remove intercept in case it persists 
+  selected <- make.names(selected)
+  selected <- selected[selected != "X.Intercept."]
+  
   
   #return everything in a list
   return(list(
@@ -97,7 +106,62 @@ enet <- function(df,
   ))
 }
 
-#function for maps
+#function for maps. call using sf_df (spatial dataframe), the outcome (map_col), the local gi (gi+col)
+#give the first one (outcome map) title with map_title =, defaults to map_col if none provided
+#resid_type allows for dynamic titling of residuals map (map 2), can set it to "enet" for elastic net, "inla" for inla
+#if nothing, it is set to just 'residuals.' Put a file path and name in save_png to export the map
+#makes a three panel map with the outcome, its modelled residuals, and then the gi of residuals (hot/cold spots)
+#the gi of residuals represents unmodelled geographic autocorrelation/clustering remaining post-model
+gi_tmap <- function(sf_df, 
+                    map_col, 
+                    resid_col, 
+                    gi_col, 
+                    map_title = NULL, 
+                    resid_type = NULL, 
+                    save_png = NULL) {
+  
+  if (is.null(map_title)) {
+    map_title <- map_col
+  }
+  
+  resid_title <- dplyr::case_when(
+    resid_type == "enet" ~ "Elastic Net residuals",
+    resid_type == "inla" ~ "INLA residuals",
+    TRUE ~ "Residuals"
+  )
+  
+  tmap_mode("plot")
+ 
+  tm1 <- tm_shape(sf_df) +
+    tm_fill(map_col,
+            palette = "viridis",
+            style = "quantile",
+            title = map_title) +
+    tm_borders()
+  
+  tm2 <- tm_shape(sf_df) +
+    tm_fill(resid_col,
+            palette = "-RdBu",
+            style = "quantile",
+            title = resid_title) +
+    tm_borders()
+  
+  tm3 <- tm_shape(sf_df) +
+    tm_fill(gi_col,
+            palette = "-RdBu",
+            style = "quantile",
+            title = "Gi* (hot/cold spots)") +
+    tm_borders()
+  
+  map <- tmap_arrange(tm1, tm2, tm3, ncol = 3)
+  
+  if (!is.null(save_png)) {
+    tmap_save(fig, filename = save_png, dpi = 300, width = 10, height = 4)
+    message("Saved map to: ", save_png)
+  }
+  
+  map
+}
 
 #inla function
 
@@ -188,41 +252,27 @@ bnssg_clean <- st_drop_geometry(bnssg_clean)
 nb <- poly2nb(bnssg, queen = TRUE)
 lw <- nb2listw(nb, style = "B")
 
+#elastic net model
 enet_model <- enet(bnssg_clean, "swd_pct_seg4_5", lw)
 
-#calc local getis ord on residuals using lw and map 
-bnssg$gi_enet1 <- as.numeric(localG(bnssg$resid_enet1, lw))
-bnssg$gi_enet2 <- as.numeric(localG(bnssg$resid_enet2, lw))
-bnssg$gi_enet3  <- as.numeric(localG(bnssg$resid_enet3,  lw))
+#pull out enet names
+resid_col <- enet_model$resid
+lag_col   <- enet_model$lag_col
 
+#add residual and lag back to sf object
+bnssg[[resid_col]] <- enet_model$df[[resid_col]]
+bnssg[[lag_col]]   <- enet_model$df[[lag_col]]
 
-#tmap resids and local gi 
-tmap_mode("plot")
+#create container for gi 
+gi_col <- paste0("gi_", resid_col)
 
-tm1 <- tm_shape(bnssg) +
-  tm_fill("swd_pct_seg4_5",
-          palette = "viridis",
-          style = "quantile",
-          title = "% in CMS 4-5") +
-  tm_borders()
+#calculate local gi
+bnssg[[gi_col]] <- as.numeric(localG(bnssg[[resid_col]], lw))
 
-tm2 <- tm_shape(bnssg) +
-  tm_fill("resid_enet1",
-          palette = "-RdBu",
-          style = "quantile",
-          title = "Elastic Net residuals") +
-  tm_borders()
+#generate three panel map
+enet_map <- gi_tmap(bnssg, "swd_pct_seg4_5", "resid_swd_pct_seg4_5", "gi_resid_swd_pct_seg4_5", map_title = "Proportion in CMS 4-5", resid_type = "enet")
 
-tm3 <- tm_shape(bnssg) +
-  tm_fill("gi_enet1",
-          palette = "-RdBu",
-          style = "quantile",
-          title = "Gi* (hot/cold spots)") +
-  tm_borders()
-
-tmap_arrange(tm1, tm2, tm3, ncol = 3)
-
-#inla models as residuals still show clustering
+#create inla models as residuals still show clustering
 
 #calc new matrix weights (not list) for inla
 inlaw  <- nb2mat(nb, style = "B")
@@ -232,16 +282,11 @@ inla.write.graph(inlaw, "bnssg.graph")
 bnssg$id <- 1:nrow(bnssg)
 
 #pull out enet covars
-coef_enet1 <- coef(enet_1, s = "lambda.min")
-selected_vars1 <- rownames(coef_enet1)[coef_enet1[,1] != 0]
-selected_vars1 <- setdiff(selected_vars1, "(Intercept)")
-
-#sanitise selected_vars to match model matrix X from enet
-selected_vars1 <- make.names(selected_vars1)
+selected_vars_inla <- make.names(enet_model$selected_vars)
 
 
 #collapse variable names into a single string for selected variables from enet
-rhs <- paste(selected_vars1, collapse = " + ")
+rhs <- paste(selected_vars_inla, collapse = " + ")
 
 #add the BYM2 spatial random effect to model
 rhs <- paste(rhs, "+ f(id, model = 'bym2', graph = 'bnssg.graph')")
@@ -258,15 +303,9 @@ colnames(X_inla) <- make.names(colnames(X_inla))
 
 bnssg <- cbind(bnssg, X_inla)
 
-rhs <- paste(selected_vars1, collapse = " + ")
+rhs <- paste(selected_vars_inla, collapse = " + ")
 rhs <- paste(rhs, "+ f(id, model = 'bym2', graph = 'bnssg.graph')")
 formula_inla <- as.formula(paste("swd_pct_seg4_5 ~", rhs))
-
-#formula with selected covariates from elastic net
-formula_inla <- swd_pct_seg4_5 ~ 
-  var1 + var2 + var3 +   # <- replace with your selected vars
-  f(id, model = "bym2", graph = "bnssg.graph")
-
 
 res_inla <- inla(
   formula_inla,
