@@ -7,7 +7,7 @@ library(spdep)
 library(FNN)
 library(INLA)
 library(tmap)
-tmap_options(version = 3)
+
 
 #inla has to be installed like this:
 #install.packages("INLA",repos=c(getOption("repos"),INLA="https://inla.r-inla-download.org/R/stable"), dep=TRUE)
