@@ -92,7 +92,10 @@ enet <- function(df,
   selected <- make.names(selected)
   selected <- selected[selected != "X.Intercept."]
   
-  
+  #remove dummy-coded factor variables (LAD22NM and year)
+  selected <- selected[!grepl("^factor\\.year", selected)]
+  selected <- selected[!grepl("^LAD22NM", selected)]
+                                                  
   #return everything in a list
   return(list(
     df = df,
