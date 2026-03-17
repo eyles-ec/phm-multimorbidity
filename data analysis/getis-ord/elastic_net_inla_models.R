@@ -93,8 +93,11 @@ enet <- function(df,
   selected <- selected[selected != "X.Intercept."]
   
   #remove dummy-coded factor variables (LAD22NM and year)
-  selected <- selected[!grepl("^factor\\.year", selected)]
-  selected <- selected[!grepl("^LAD22NM", selected)]
+  selected <- selected[!grepl("^LAD22NM", selected)] 
+  selected <- selected[!grepl("^factor\\.", selected)]
+  selected <- selected[!grepl("^year", selected)]
+  
+  print(selected)
                                                   
   #return everything in a list
   return(list(
@@ -166,8 +169,63 @@ gi_tmap <- function(sf_df,
   map
 }
 
-#inla function
+#inla function, needs sf_df (spatial dataframe), outcome as a string, selected variables vector from enet (ENET_OUTPUT$selected_vars)
+#nb, the neighbour list we generated earlier
+inla_model <- function(sf_df, 
+                       outcome, 
+                       selected, 
+                       nb){
+  
+  #adjacency matrix/weight for inla, makes an inla 'graph'
+  inlaw <- nb2mat(nb, style = "B")
+  inla.write.graph(inlaw, "bnssg.graph")
+  
+  #area index
+  sf_df$id <- 1:nrow(sf_df)
+  
+  #ensure selected variables are sanitary for use in inla formula
+  selected <- unique(selected)
+  selected <- setdiff(selected, c("(Intercept)", "Intercept", "X.Intercept."))
+  selected <- selected[!grepl("^factor\\.", selected)]
+  selected <- selected[!grepl("^LAD22NM", selected)]
+  selected <- setdiff(selected, "year")
+  
+  #drop any missing variables
+  selected <- intersect(selected, names(sf_df))
 
+  #add BYM2 spatial random effect to model and build formula, collapse it into a string
+  #BYM2 decomposes latent effects into weighted sums of independent AND spatial effects (structured and unstructured)
+  #paper: https://arxiv.org/pdf/1601.1180
+  #other paper which is useful: https://journals.sagepub.com/doi/10.1177/09622802241293776
+  predictors <- paste(c(selected, 
+                      "factor(year)", 
+                      "factor(LAD22NM)", 
+                      "f(id, model='bym2', graph = 'bnssg.graph')"),
+                      collapse = " + ")
+  
+  #build inla formula
+  formula_inla <- as.formula(sprintf("%s ~ %s", outcome, predictors))
+  
+  cat("INLA formula:\n", deparse(formula_inla), "\n")
+  
+  model_inla <- inla(
+    formula_inla,
+    family = "gaussian",
+    data = as.data.frame(sf_df),
+    control.predictor = list(compute = TRUE),
+    control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE)
+  )
+  
+  sf_df$fitted_inla <- model_inla$summary.fitted.values$mean
+  sf_df$resid_inla <- sf_df[[outcome]] - sf_df$fitted_inla
+  
+  return(list(
+    data       = sf_df,
+    inla_model = model_inla,
+    formula    = formula_inla
+  ))
+  
+}
 
 #pull wd from paths.R (put in .gitignore)
 source("../paths.R")
@@ -212,10 +270,10 @@ exclude_vars <- c(
   "n_intersections",
   "area_km2",
   "IMD25",
-  "swd_median_age"
+  "swd_median_age",
+  "swd_mean_cms", #rm for now
+  "swd_median_cms" #rm for now
 )
-
-outcomes <- c("swd_pct_seg4_5", "swd_mean_cms", "swd_median_cms")
 
 #impute pollution with k nearest neighbours
 pollution_vars <- c(
@@ -250,11 +308,6 @@ lw <- nb2listw(nb, style = "B")
 #drop geometry for modelling, only necessary if running as a pipeline
 bnssg_clean <- st_drop_geometry(bnssg_clean)
 
-
-#neighbourlist, binary spatial weights
-nb <- poly2nb(bnssg, queen = TRUE)
-lw <- nb2listw(nb, style = "B")
-
 #elastic net model
 enet_model <- enet(bnssg_clean, "swd_pct_seg4_5", lw)
 
@@ -277,46 +330,6 @@ enet_map <- gi_tmap(bnssg, "swd_pct_seg4_5", "resid_swd_pct_seg4_5", "gi_resid_s
 
 #create inla models as residuals still show clustering
 
-#calc new matrix weights (not list) for inla
-inlaw  <- nb2mat(nb, style = "B")
-inla.write.graph(inlaw, "bnssg.graph")
+#run inla function
+inla_out <- inla_model(bnssg, "swd_pct_seg4_5", enet_model$selected_vars, nb)
 
-#index for areas
-bnssg$id <- 1:nrow(bnssg)
-
-#pull out enet covars
-selected_vars_inla <- make.names(enet_model$selected_vars)
-
-
-#collapse variable names into a single string for selected variables from enet
-rhs <- paste(selected_vars_inla, collapse = " + ")
-
-#add the BYM2 spatial random effect to model
-rhs <- paste(rhs, "+ f(id, model = 'bym2', graph = 'bnssg.graph')")
-
-#build the inla formula
-formula_inla <- as.formula(paste("swd_pct_seg4_5 ~", rhs))
-
-X_inla <- model.matrix(
-  ~ . + factor(year) + factor(LAD22NM),
-  data = bnssg_clean
-)
-
-colnames(X_inla) <- make.names(colnames(X_inla))
-
-bnssg <- cbind(bnssg, X_inla)
-
-rhs <- paste(selected_vars_inla, collapse = " + ")
-rhs <- paste(rhs, "+ f(id, model = 'bym2', graph = 'bnssg.graph')")
-formula_inla <- as.formula(paste("swd_pct_seg4_5 ~", rhs))
-
-res_inla <- inla(
-  formula_inla,
-  family = "gaussian",
-  data   = as.data.frame(bnssg),
-  control.predictor = list(compute = TRUE),
-  control.compute   = list(dic = TRUE, waic = TRUE, cpo = TRUE)
-)
-
-bnssg$fitted_inla  <- res_inla$summary.fitted.values$mean
-bnssg$resid_inla   <- bnssg$swd_pct_seg4_5 - bnssg$fitted_inla
