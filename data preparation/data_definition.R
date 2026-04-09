@@ -3,7 +3,9 @@ library(readr)
 library(purrr)
 library(stringr)
 library(tidyr)
+library(rlang)
 
+#function to process CSVs labelled by year, then add year to the columns for easy joining
 process_csv <- function(path) {
   
   #extract the year from each file name
@@ -19,6 +21,24 @@ process_csv <- function(path) {
   df %>%
     rename_with(~ paste0(.x, "_", year), all_of(rename_to))
   
+}
+
+#calculate a change outcome in df, using 'outcome.' this calculates absolute change from 2021 and change through time year on year. 
+change_outcome <- function(df, outcome) {
+  
+  outcome_name <- as_name(enquo(outcome))
+  
+  #add in a change variable to the long format data (change from 2021), and a relative change which is change from one previous lag
+  df <- df %>%
+    group_by(LSOA21CD) %>%
+    arrange(year, .by_group = TRUE) %>%
+    mutate(
+      !!paste0(outcome_name, "_abs_change") := {{outcome}} - {{outcome}}[year == 2021],
+      !!paste0(outcome_name, "_yoy_change") := ifelse(year == 2021, 0, {{outcome}}- lag({{outcome}}))
+    ) %>%
+    ungroup()
+  
+  return(df)
 }
 
 source("paths.R")
@@ -86,6 +106,10 @@ bnssg_long <- bnssg %>%
   mutate(
     year = as.numeric(paste0("20", year))
   )
+
+#create change for mean CMS and for pct of seg 4-5
+bnssg_long <- change_outcome(bnssg_long, swd_mean_cms)
+bnssg_long <- change_outcome(bnssg_long, swd_pct_seg4_5)
 
 #save complete long and wide files for analysis, create directory if an issue
 dir.create("./BNSSG/linked", recursive = TRUE, showWarnings = FALSE)
