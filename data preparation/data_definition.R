@@ -2,6 +2,7 @@ library(dplyr)
 library(readr)
 library(purrr)
 library(stringr)
+library(tidyr)
 
 process_csv <- function(path) {
   
