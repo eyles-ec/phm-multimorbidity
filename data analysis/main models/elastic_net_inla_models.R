@@ -162,7 +162,7 @@ gi_tmap <- function(sf_df,
   map <- tmap_arrange(tm1, tm2, tm3, ncol = 3)
   
   if (!is.null(save_png)) {
-    tmap_save(fig, filename = save_png, dpi = 300, width = 10, height = 4)
+    tmap_save(map, filename = save_png, dpi = 300, width = 10, height = 4)
     message("Saved map to: ", save_png)
   }
   
@@ -219,10 +219,22 @@ inla_model <- function(sf_df,
   sf_df$fitted_inla <- model_inla$summary.fitted.values$mean
   sf_df$resid_inla <- sf_df[[outcome]] - sf_df$fitted_inla
   
+  #Bayesian p values for fixed effects (two-sided Bayesian tail probability)
+  marginals <- model_inla$marginals.fixed
+  fixed_sum <- model_inla$summary.fixed
+  
+  bayes_p <- sapply(marginals, function(m) {
+    p_pos <- INLA::inla.pmarginal(0, m)
+    2 * min(p_pos, 1 - p_pos)
+  })
+  
+  fixed_sum$bayes_p_value <- bayes_p
+
   return(list(
     data       = sf_df,
     inla_model = model_inla,
-    formula    = formula_inla
+    formula    = formula_inla,
+    summary_fixed   = fixed_sum
   ))
   
 }
@@ -325,11 +337,69 @@ gi_col <- paste0("gi_", resid_col)
 #calculate local gi
 bnssg[[gi_col]] <- as.numeric(localG(bnssg[[resid_col]], lw))
 
-#generate three panel map
-enet_map <- gi_tmap(bnssg, "swd_pct_seg4_5", "resid_swd_pct_seg4_5", "gi_resid_swd_pct_seg4_5", map_title = "Proportion in CMS 4-5", resid_type = "enet")
+#generate three panel map, save using function
+enet_map <- gi_tmap(bnssg, "swd_pct_seg4_5", "resid_swd_pct_seg4_5", "gi_resid_swd_pct_seg4_5", map_title = "Proportion in CMS 4-5", resid_type = "enet", save_png = "enet.png")
 
 #create inla models as residuals still show clustering
 
 #run inla function
 inla_out <- inla_model(bnssg, "swd_pct_seg4_5", enet_model$selected_vars, nb)
+
+#pull out inla names
+resid_col_inla <- "resid_inla"
+gi_col_inla    <- "gi_resid_inla"
+
+#add residual and local gi
+bnssg[[resid_col_inla]] <- inla_out$data$resid_inla
+bnssg[[gi_col_inla]] <- as.numeric(localG(bnssg[[resid_col_inla]], lw))
+
+#generate three panel map, save
+inla_map <- gi_tmap(bnssg, "swd_pct_seg4_5", resid_col_inla, gi_col_inla, map_title = "Proportion in CMS 4-5", resid_type = "inla", save_png = "inla.png")
+
+#export everything by combining an enet df and an inla df
+enet_coef <- coef(enet_model$enet_model, s = "lambda.min")
+
+enet_df <- data.frame(
+  term = rownames(enet_coef),
+  enet_coef = as.numeric(enet_coef)
+) |>
+  dplyr::filter(enet_coef != 0)
+
+inla_df <- inla_out$summary_fixed |>
+  as.data.frame() |>
+  tibble::rownames_to_column("term") |>
+  dplyr::select(
+    term,
+    mean,
+    sd,
+    `0.025quant`,
+    `0.975quant`,
+    bayes_p_value
+  )
+
+model_results <- enet_df |>
+  dplyr::full_join(inla_df, by = "term") 
+
+#pull out fitted fixed effects for mapping 
+fitted_inla <- inla_out$inla_model$summary.fitted.values |>
+  mutate(
+    LSOA21CD = inla_out$data$LSOA21CD,   
+    observed = inla_out$data$swd_pct_seg4_5,
+  ) |>
+  rename(
+    fitted_mean = mean,
+    fitted_sd   = sd,
+    fitted_lci  = `0.025quant`,
+    fitted_uci  = `0.975quant`
+  ) |>
+  relocate(LSOA21CD)
+
+fitted_inla <- fitted_inla |>
+  dplyr::mutate(
+    residual = observed - fitted_mean
+  )
+
+write.csv(model_results,"enet_inla_models_swd_pct_seg4_5.csv", row.names = FALSE)
+write.csv(fitted_inla, "fitted_inla_model_swd_pct_seg4_5.csv", row.names = FALSE)
+
 
