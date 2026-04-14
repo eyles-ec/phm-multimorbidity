@@ -1,3 +1,5 @@
+#tbd functions and saving
+
 bnssg$above10 <- bnssg$swd_pct_seg4_5 > 10
 bnssg$recentred <- bnssg$swd_pct_seg4_5 - 10
 
