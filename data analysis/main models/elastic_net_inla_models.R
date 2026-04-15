@@ -610,8 +610,8 @@ bnssg_change <- bnssg |>
   )
 
 #run inla function
-inla_score <- inla_model(bnssg_score, "swd_pct_seg4_5", enet_model$selected_vars, nb)
-inla_change <- inla_model(bnssg_change, "swd_pct_seg4_5_yoy_change", enet_model$selected_vars, nb)
+inla_score <- inla_model(bnssg_score, "swd_pct_seg4_5", enet_model_score$selected_vars, nb)
+inla_change <- inla_model(bnssg_change, "swd_pct_seg4_5_yoy_change", enet_model_change$selected_vars, nb)
 
 #pull out inla names
 resid_col_inla_score <- "resid_inla_score"
