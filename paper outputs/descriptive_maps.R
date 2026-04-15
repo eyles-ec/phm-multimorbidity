@@ -68,7 +68,7 @@ descriptive_maps <- function(
   
   #Layout and map decorations
   tm +
-    tm_scalebar(position = c("center", "bottom")) +
+    tm_scalebar(position = c("right", "bottom")) +
     tm_compass(type = "arrow", position = c("right", "top")) +
     tm_layout(
       frame           = TRUE,
