@@ -75,7 +75,7 @@ descriptive_maps <- function(
       frame.lwd       = 1,
       frame.col       = "black",
       legend.outside  = FALSE,
-      legend.position = c("left", "center")
+      legend.position = c("left", "top")
     )
 }
 
