@@ -654,7 +654,7 @@ inla_post_score_map <-inla_post_map(
                       exceed_prob  = "p_above_threshold",
                       save_png = "inla_post_score.png")
 
-inla_post_score_map <-inla_post_map(
+inla_post_change_map <-inla_post_map(
                         sf_df = sf_map_change,    
                         fitted_mean  = "fitted_mean",
                         outcome   = "observed",
