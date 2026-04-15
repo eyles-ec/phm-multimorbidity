@@ -68,14 +68,14 @@ descriptive_maps <- function(
   
   #Layout and map decorations
   tm +
-    tm_scalebar(position = c("center", "bottom")) +
+    tm_scalebar(position = c("right", "bottom")) +
     tm_compass(type = "arrow", position = c("right", "top")) +
     tm_layout(
       frame           = TRUE,
       frame.lwd       = 1,
       frame.col       = "black",
       legend.outside  = FALSE,
-      legend.position = c("left", "center")
+      legend.position = c("left", "top")
     )
 }
 
@@ -154,7 +154,7 @@ map_specs <- tribble(
   "recentred",           "-RdBu",          "quantile",  5,          "Recentred (10% = 0)",                          "seg45_recentred.png",
   
   # Deprivation
-  "IMD25",        "-viridis",       "quantile",     10,         "IMD 2025 decile (1 = most deprived)",         "imd25_decile.png",
+  "IMD25",        "-viridis",       "quantile",     5,         "IMD25 quintile",         "imd25_quintile.png",
   
   # Environment
   "pm10_2024_mean_ugm3", "inferno",         "quantile",  5,          "PM10 (µg/m³, 2024 mean)",           "pm10_2024_mean.png",

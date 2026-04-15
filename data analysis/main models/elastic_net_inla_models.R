@@ -97,8 +97,7 @@ enet <- function(df,
   selected <- selected[!grepl("^factor\\.", selected)]
   selected <- selected[!grepl("^year", selected)]
   
-  print(selected)
-                                                  
+                        
   #return everything in a list
   return(list(
     df = df,
@@ -219,7 +218,7 @@ inla_model <- function(sf_df,
   sf_df$fitted_inla <- model_inla$summary.fitted.values$mean
   sf_df$resid_inla <- sf_df[[outcome]] - sf_df$fitted_inla
   
-  #Bayesian p values for fixed effects (two-sided Bayesian tail probability)
+  #Bayesian p values for fixed effects (for paper: two-sided posterior tail probability)
   marginals <- model_inla$marginals.fixed
   fixed_sum <- model_inla$summary.fixed
   
@@ -238,6 +237,240 @@ inla_model <- function(sf_df,
   ))
   
 }
+
+#inla postestimation function 
+inla_postestimation <- function(inla_out, outcome, outcome_type = c("score","change"), threshold = 10, nb) {
+    
+    model <- inla_out$inla_model
+    sf_df <- inla_out$data
+    
+    #fixed effects
+    fixed_effects <- inla_out$summary_fixed
+    
+    #Hyperparameters (BYM2 diagnostics)
+    #phi (mixing parameter - proportion of random effect variance that is spatially structured) 0 - spatial noise, 0.50 noise/structured equally, 1 entirely spatially structured
+    #precision - (1/variance) high -low residual variability, e.g how much remaining variation is there
+    #high phi, high precision - strong/smooth spatial paterning, good model fit
+    #high phi, low precision - strong spatial pattern but high heterogeneity
+    #phi is not causal! or a goodness of fit!
+    hyperparameters <- model$summary.hyperpar
+    
+    #Fitted values & uncertainty of these
+    fitted <- model$summary.fitted.values |>
+      dplyr::mutate(
+        LSOA21CD = sf_df$LSOA21CD,
+        year = sf_df$year,
+        observed = sf_df[[outcome]],
+        
+        residual = observed - mean,
+        
+        #stability/precision of mean estimate
+        ci_width = `0.975quant` - `0.025quant`
+      ) |>
+      dplyr::rename(
+        fitted_mean = mean, 
+        fitted_sd   = sd,
+        fitted_lci  = `0.025quant`,
+        fitted_uci  = `0.975quant`
+      )
+    if (outcome_type == "change") {
+      #Given the data and the model, how likely is it that year-on-year change is positive or negative?
+      fitted <- fitted |>
+        dplyr::mutate(
+          p_positive_change = 1 - pnorm(0, fitted_mean, fitted_sd), # if this is close to 1, evidence of increase (e.g. increase in seg4-5)
+          p_negative_change = pnorm(0, fitted_mean, fitted_sd)#if this is close to 1, evidence of decrease (e.g. decrease in seg 4-5)
+        )
+      
+    } else if (outcome_type == "score") {
+      #Given the data and the model, how likely is it that the score is above or below the threshold (e.g. 10%)?
+      fitted <- fitted |>
+        dplyr::mutate(
+          p_above_threshold = 1 - pnorm(threshold, fitted_mean, fitted_sd), #close to 1, evidence CMS 4-5 is higher than 10%
+          p_below_threshold = pnorm(threshold, fitted_mean, fitted_sd)#close to 1, evidence CMS 4-5 is lower than 10%
+        )
+    
+    } else {
+      stop("outcome type incorrectly specified (must be change or score")
+    }
+    
+  #Residual spatial autocorrelation using moran's i
+  #looks at whether there's unexplained spatial autocorrelation
+  #close to 0 and p > 0.05, resids are spatially uncorrelated
+  #if not, some structure may be unexplained due to missing covariates
+  moran_res <- moran.test(fitted$residual, nb2listw(nb, style = "W"))
+  
+  return(list(
+    fixed_effects = fixed_effects,
+    hyperparameters = hyperparameters,
+    fitted = fitted,
+    moran_residuals = moran_res
+  ))
+}
+
+#inla postestimation mapping function
+inla_post_map <- function(
+    sf_df,
+    fitted_mean,
+    outcome,
+    exceed_prob,
+    save_png = NULL,
+    title_prefix = "INLA"
+) {
+  
+  tmap_mode("plot")
+  
+  
+  tm1 <- tm_shape(sf_df) +
+    tm_polygons(
+      fill = fitted_mean,
+      col  = NULL,
+      fill.scale = tm_scale_intervals(
+        style = "quantile",
+        n = 5,
+        values = "viridis"
+      ),
+      fill.legend = tm_legend(
+        title = "Posterior mean"
+      )
+    )
+  
+  tm2 <- tm_shape(sf_df) +
+    tm_polygons(
+      fill = outcome,
+      col  = NULL,
+      fill.scale = tm_scale_intervals(
+        style = "quantile",
+        n = 5,
+        values = "viridis"
+      ),
+      fill.legend = tm_legend(
+        title = "Observed values"
+      )
+    )
+  
+  tm3 <- tm_shape(sf_df) +
+    tm_polygons(
+      fill = exceed_prob,
+      col  = NULL,
+      fill.scale = tm_scale_intervals(
+        style = "fixed",
+        breaks = c(0, 0.2, 0.5, 0.8, 1),
+        values = "plasma"
+      ),
+      fill.legend = tm_legend(
+        title = "Exceedance probability"
+      )
+    )
+  
+  map <- tmap_arrange(tm1, tm2, tm3, ncol = 3)
+  
+  if (!is.null(save_png)) {
+    tmap_save(map, save_png, dpi = 300, width = 10, height = 4)
+  }
+  
+  map
+}
+
+#results export function
+export_model_results <- function(
+    enet_model,
+    inla_out,
+    inla_post,
+    outcome_name,
+    output_dir = "."
+) {
+  
+  #enet coefficients
+  enet_coef <- coef(enet_model$enet_model, s = "lambda.min")
+  
+  enet_df <- data.frame(
+    term = rownames(enet_coef),
+    enet_coef = as.numeric(enet_coef)
+  ) |>
+    dplyr::filter(enet_coef != 0)
+  
+  #fixed effects from inla
+  inla_df <- inla_out$summary_fixed |>
+    as.data.frame() |>
+    tibble::rownames_to_column("term") |>
+    dplyr::select(
+      term,
+      mean,
+      sd,
+      `0.025quant`,
+      `0.975quant`,
+      bayes_p_value
+    )
+  
+  #join up enet and inla model results
+  model_results <- dplyr::full_join(enet_df, inla_df, by = "term")
+  
+  #fitted values from postestimation
+  fitted_df <- inla_post$fitted
+  
+  #hyperparameters from postestimation
+  hyper_df <- inla_post$hyperparameters |>
+    as.data.frame() |>
+    tibble::rownames_to_column("parameter")
+  
+  #moran's I on residuals from inla
+  moran <- inla_post$moran_residuals
+  
+  moran_df <- data.frame(
+    moran_I     = as.numeric(moran$estimate[["Moran I statistic"]]),
+    expected_I  = as.numeric(moran$estimate[["Expectation"]]),
+    variance    = as.numeric(moran$estimate[["Variance"]]),
+    z_value     = as.numeric(moran$statistic),
+    p_value     = as.numeric(moran$p.value),
+    alternative = moran$alternative,
+    method      = moran$method,
+    data_name   = moran$data.name,
+    stringsAsFactors = FALSE
+  )
+  
+  #write CSV
+  write.csv(
+    model_results,
+    file = file.path(output_dir, paste0("enet_inla_fixed_", outcome_name, ".csv")),
+    row.names = FALSE
+  )
+  
+  write.csv(
+    fitted_df,
+    file = file.path(output_dir, paste0("inla_fitted_", outcome_name, ".csv")),
+    row.names = FALSE
+  )
+  
+  write.csv(
+    hyper_df,
+    file = file.path(output_dir, paste0("inla_hyperparameters_", outcome_name, ".csv")),
+    row.names = FALSE
+  )
+  
+  write.csv(
+    moran_df,
+    file = file.path(output_dir, paste0("moran_residuals_", outcome_name, ".csv")),
+    row.names = FALSE
+  )
+  
+  #save all the models 
+  saveRDS(
+    enet_model,
+    file = file.path(output_dir, paste0("enet_model_", outcome_name, ".rds"))
+  )
+  
+  saveRDS(
+    inla_out,
+    file = file.path(output_dir, paste0("inla_model_", outcome_name, ".rds"))
+  )
+
+  invisible(list(
+    fixed_effects = model_results,
+    fitted        = fitted_df,
+    hyperparameters = hyper_df
+  ))
+}
+
 
 #pull wd from paths.R (put in .gitignore)
 source("../paths.R")
@@ -284,7 +517,10 @@ exclude_vars <- c(
   "IMD25",
   "swd_median_age",
   "swd_mean_cms", #rm for now
-  "swd_median_cms" #rm for now
+  "swd_median_cms", #rm for now
+  "swd_pct_seg4_5_abs_change",
+  "swd_mean_cms_abs_change" ,     
+  "swd_mean_cms_yoy_change" 
 )
 
 #impute pollution with k nearest neighbours
@@ -320,86 +556,113 @@ lw <- nb2listw(nb, style = "B")
 #drop geometry for modelling, only necessary if running as a pipeline
 bnssg_clean <- st_drop_geometry(bnssg_clean)
 
+#remove other outcome
+bnssg_score <- bnssg_clean |>
+  select(
+    -swd_pct_seg4_5_yoy_change
+  )
+
+bnssg_change <- bnssg_clean |>
+  select(
+    -swd_pct_seg4_5
+  )
+
 #elastic net model
-enet_model <- enet(bnssg_clean, "swd_pct_seg4_5", lw)
+enet_model_score <- enet(bnssg_score, "swd_pct_seg4_5", lw)
+enet_model_change <- enet(bnssg_change, "swd_pct_seg4_5_yoy_change", lw)
 
 #pull out enet names
-resid_col <- enet_model$resid
-lag_col   <- enet_model$lag_col
+resid_col_score <- enet_model_score$resid
+lag_col_score   <- enet_model_score$lag_col
+
+resid_col_change <- enet_model_change$resid
+lag_col_change <- enet_model_change$lag_col
 
 #add residual and lag back to sf object
-bnssg[[resid_col]] <- enet_model$df[[resid_col]]
-bnssg[[lag_col]]   <- enet_model$df[[lag_col]]
+bnssg[[resid_col_score]] <- enet_model_score$df[[resid_col_score]]
+bnssg[[lag_col_score]]   <- enet_model_score$df[[lag_col_score]]
+bnssg[[resid_col_change]] <- enet_model_change$df[[resid_col_change]]
+bnssg[[lag_col_change]]   <- enet_model_change$df[[lag_col_change]]
 
 #create container for gi 
-gi_col <- paste0("gi_", resid_col)
+gi_col_score <- paste0("gi_", resid_col_score)
+gi_col_change <- paste0("gi_", resid_col_change)
 
 #calculate local gi
-bnssg[[gi_col]] <- as.numeric(localG(bnssg[[resid_col]], lw))
+bnssg[[gi_col_score]] <- as.numeric(localG(bnssg[[resid_col_score]], lw))
+bnssg[[gi_col_change]] <- as.numeric(localG(bnssg[[resid_col_change]], lw))
 
 #generate three panel map, save using function
-enet_map <- gi_tmap(bnssg, "swd_pct_seg4_5", "resid_swd_pct_seg4_5", "gi_resid_swd_pct_seg4_5", map_title = "Proportion in CMS 4-5", resid_type = "enet", save_png = "enet.png")
+enet_map_score <- gi_tmap(bnssg, "swd_pct_seg4_5", "resid_swd_pct_seg4_5", "gi_resid_swd_pct_seg4_5", map_title = "Proportion in CMS 4-5", resid_type = "enet", save_png = "enet_score.png")
+enet_map_change <- gi_tmap(bnssg, "swd_pct_seg4_5_yoy_change", "resid_swd_pct_seg4_5_yoy_change", "gi_resid_swd_pct_seg4_5_yoy_change", map_title = "Yearly Change in CMS 4-5", resid_type = "enet", save_png = "enet_change.png")
 
 #create inla models as residuals still show clustering
 
+#subset out outcomes
+bnssg_score <- bnssg|>
+  select(
+    -swd_pct_seg4_5_yoy_change
+  )
+
+bnssg_change <- bnssg |>
+  select(
+    -swd_pct_seg4_5
+  )
+
 #run inla function
-inla_out <- inla_model(bnssg, "swd_pct_seg4_5", enet_model$selected_vars, nb)
+inla_score <- inla_model(bnssg_score, "swd_pct_seg4_5", enet_model_score$selected_vars, nb)
+inla_change <- inla_model(bnssg_change, "swd_pct_seg4_5_yoy_change", enet_model_change$selected_vars, nb)
 
 #pull out inla names
-resid_col_inla <- "resid_inla"
-gi_col_inla    <- "gi_resid_inla"
+resid_col_inla_score <- "resid_inla_score"
+gi_col_inla_score    <- "gi_resid_inla_score"
+resid_col_inla_change <- "resid_inla_change"
+gi_col_inla_change <- "gi_resid_inla_change"
 
 #add residual and local gi
-bnssg[[resid_col_inla]] <- inla_out$data$resid_inla
-bnssg[[gi_col_inla]] <- as.numeric(localG(bnssg[[resid_col_inla]], lw))
+bnssg[[resid_col_inla_score]] <- inla_score$data$resid_inla
+bnssg[[gi_col_inla_score]] <- as.numeric(localG(bnssg[[resid_col_inla_score]], lw))
+bnssg[[resid_col_inla_change]] <- inla_change$data$resid_inla
+bnssg[[gi_col_inla_change]] <- as.numeric(localG(bnssg[[resid_col_inla_change]], lw))
+
 
 #generate three panel map, save
-inla_map <- gi_tmap(bnssg, "swd_pct_seg4_5", resid_col_inla, gi_col_inla, map_title = "Proportion in CMS 4-5", resid_type = "inla", save_png = "inla.png")
+inla_map_score <- gi_tmap(bnssg, "swd_pct_seg4_5", resid_col_inla_score, gi_col_inla_score, map_title = "Proportion in CMS 4-5", resid_type = "inla", save_png = "inla_score.png")
+inla_map_change <- gi_tmap(bnssg, "swd_pct_seg4_5_yoy_change", resid_col_inla_change, gi_col_inla_change, map_title = "Change in CMS 4-5", resid_type = "inla", save_png = "inla_change.png")
 
-#export everything by combining an enet df and an inla df
-enet_coef <- coef(enet_model$enet_model, s = "lambda.min")
+#other inla postestimation
+inla_post_score <- inla_postestimation(inla_score, "swd_pct_seg4_5", outcome_type = "score",threshold=10, nb)
+inla_post_change<- inla_postestimation(inla_change, "swd_pct_seg4_5_yoy_change", outcome_type = "change", threshold = 0, nb)
 
-enet_df <- data.frame(
-  term = rownames(enet_coef),
-  enet_coef = as.numeric(enet_coef)
-) |>
-  dplyr::filter(enet_coef != 0)
-
-inla_df <- inla_out$summary_fixed |>
-  as.data.frame() |>
-  tibble::rownames_to_column("term") |>
-  dplyr::select(
-    term,
-    mean,
-    sd,
-    `0.025quant`,
-    `0.975quant`,
-    bayes_p_value
+#join fitted values to inla data by LSOA and year
+sf_map_score <- inla_score$data |>
+  dplyr::left_join(
+    inla_post_score$fitted,
+    by = c("LSOA21CD", "year")
   )
 
-model_results <- enet_df |>
-  dplyr::full_join(inla_df, by = "term") 
-
-#pull out fitted fixed effects for mapping 
-fitted_inla <- inla_out$inla_model$summary.fitted.values |>
-  mutate(
-    LSOA21CD = inla_out$data$LSOA21CD,   
-    observed = inla_out$data$swd_pct_seg4_5,
-  ) |>
-  rename(
-    fitted_mean = mean,
-    fitted_sd   = sd,
-    fitted_lci  = `0.025quant`,
-    fitted_uci  = `0.975quant`
-  ) |>
-  relocate(LSOA21CD)
-
-fitted_inla <- fitted_inla |>
-  dplyr::mutate(
-    residual = observed - fitted_mean
+sf_map_change <- inla_change$data |>
+  dplyr::left_join(
+    inla_post_change$fitted,
+    by = c("LSOA21CD", "year")
   )
 
-write.csv(model_results,"enet_inla_models_swd_pct_seg4_5.csv", row.names = FALSE)
-write.csv(fitted_inla, "fitted_inla_model_swd_pct_seg4_5.csv", row.names = FALSE)
+inla_post_score_map <-inla_post_map(
+                      sf_df = sf_map_score,    
+                      fitted_mean  = "fitted_mean",
+                      outcome   = "observed",
+                      exceed_prob  = "p_above_threshold",
+                      save_png = "inla_post_score.png")
 
+inla_post_change_map <-inla_post_map(
+                        sf_df = sf_map_change,    
+                        fitted_mean  = "fitted_mean",
+                        outcome   = "observed",
+                        exceed_prob  = "p_positive_change",
+                        save_png = "inla_post_change.png")
+
+#export everything using function 
+dir.create("results", showWarnings = FALSE)
+export_model_results(enet_model_score, inla_score, inla_post_score, outcome_name = "swd_pct_seg4_5", output_dir = "./results")
+export_model_results(enet_model_change, inla_change, inla_post_change, outcome_name = "swd_pct_seg4_5_yoy_change", output_dir = "./results")
 
