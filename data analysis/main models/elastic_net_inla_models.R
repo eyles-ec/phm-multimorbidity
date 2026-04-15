@@ -219,7 +219,7 @@ inla_model <- function(sf_df,
   sf_df$fitted_inla <- model_inla$summary.fitted.values$mean
   sf_df$resid_inla <- sf_df[[outcome]] - sf_df$fitted_inla
   
-  #Bayesian p values for fixed effects (two-sided Bayesian tail probability)
+  #Bayesian p values for fixed effects (for paper: two-sided posterior tail probability)
   marginals <- model_inla$marginals.fixed
   fixed_sum <- model_inla$summary.fixed
   
