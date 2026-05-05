@@ -106,7 +106,7 @@ variable_labels <- c(
   mixed = "Percent Mixed",
   white = "Percent White",
   other = "Percent Other",
-  IMD25_decile = "IMD Decile",
+  IMD25_decile = "IMD25 Decile",
   
   #CMS 2021
   swd_pct_seg4_5_21 = "Percent Segment 4-5, 2021",

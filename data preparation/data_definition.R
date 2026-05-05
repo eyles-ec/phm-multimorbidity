@@ -111,6 +111,20 @@ bnssg_long <- bnssg %>%
 bnssg_long <- change_outcome(bnssg_long, swd_mean_cms)
 bnssg_long <- change_outcome(bnssg_long, swd_pct_seg4_5)
 
+#join mean change back into wide for table 1
+#calculate mean year on year change
+bnssg_yoy <- bnssg_long %>%
+  group_by(LSOA21CD) %>%
+  summarise(
+    swd_mean_cms_yoy_change = mean(swd_mean_cms_yoy_change, na.rm = TRUE),
+    swd_pct_seg4_5_yoy_change = mean(swd_pct_seg4_5_yoy_change, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+#join it into wide format data
+bnssg <- bnssg %>%
+  left_join(bnssg_yoy, by = "LSOA21CD")
+
 #save complete long and wide files for analysis, create directory if an issue
 dir.create("./BNSSG/linked", recursive = TRUE, showWarnings = FALSE)
 
