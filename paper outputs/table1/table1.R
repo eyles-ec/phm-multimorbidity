@@ -65,12 +65,13 @@ generate_table1 <- function(data, group_var, continuous_vars,
     summarise(N = n(), .groups = "drop") %>%
     mutate(variable = "N (LSOAs)") %>%
     pivot_wider(
-      names_from = .data[[group_var]],
+      names_from = all_of(group_var),
       values_from = N
-    )
+    ) %>%
+    mutate(across(-variable, as.character))
   
-  n_row$Overall <- nrow(data)
-  
+  n_row$Overall <- as.character(nrow(data))
+
   #bind N row to top of table
   table1 <- bind_rows(n_row, table1)
   
@@ -92,8 +93,8 @@ bnssg <- read.csv("./BNSSG/linked/bnssg_wide.csv")
 variable_labels <- c(
   
   #demographics
-  Registered_pop_total = "Population registered at GP practices",
-  Resident_pop_total = "Total population",
+  Registered_pop_total_24 = "Population registered at GP practices",
+  Resident_pop_total_24 = "Total population",
   swd_pct_female_24 = "Percent Female",
   swd_median_age_24 = "Median Age",
   swd_mean_age_24 = "Mean Age",
@@ -158,8 +159,8 @@ continuous_vars <- names(variable_labels)
 row_groups <- list(
   
   "Demographics" = c(
-    "Registered_pop_total",
-    "Resident_pop_total",
+    "Registered_pop_total_24",
+    "Resident_pop_total_24",
     "swd_pct_female_24",
     "swd_median_age_24",
     "swd_mean_age_24",
