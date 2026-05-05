@@ -593,8 +593,8 @@ bnssg[[gi_col_score]] <- as.numeric(localG(bnssg[[resid_col_score]], lw))
 bnssg[[gi_col_change]] <- as.numeric(localG(bnssg[[resid_col_change]], lw))
 
 #generate three panel map, save using function
-enet_map_score <- gi_tmap(bnssg, "swd_pct_seg4_5", "resid_swd_pct_seg4_5", "gi_resid_swd_pct_seg4_5", map_title = "Proportion in CMS 4-5", resid_type = "enet", save_png = "enet_score.png")
-enet_map_change <- gi_tmap(bnssg, "swd_pct_seg4_5_yoy_change", "resid_swd_pct_seg4_5_yoy_change", "gi_resid_swd_pct_seg4_5_yoy_change", map_title = "Yearly Change in CMS 4-5", resid_type = "enet", save_png = "enet_change.png")
+enet_map_score <- gi_tmap(bnssg, "swd_pct_seg4_5", "resid_swd_pct_seg4_5", "gi_resid_swd_pct_seg4_5", map_title = "Proportion in CMS 4-5", resid_type = "enet", save_png = "./BNSSG/output/enet_score.png")
+enet_map_change <- gi_tmap(bnssg, "swd_pct_seg4_5_yoy_change", "resid_swd_pct_seg4_5_yoy_change", "gi_resid_swd_pct_seg4_5_yoy_change", map_title = "Yearly Change in CMS 4-5", resid_type = "enet", save_png = "./BNSSG/output/enet_change.png")
 
 #create inla models as residuals still show clustering
 
@@ -652,17 +652,17 @@ inla_post_score_map <-inla_post_map(
                       fitted_mean  = "fitted_mean",
                       outcome   = "observed",
                       exceed_prob  = "p_above_threshold",
-                      save_png = "inla_post_score.png")
+                      save_png = "./BNSSG/output/inla_post_score.png")
 
 inla_post_change_map <-inla_post_map(
                         sf_df = sf_map_change,    
                         fitted_mean  = "fitted_mean",
                         outcome   = "observed",
                         exceed_prob  = "p_positive_change",
-                        save_png = "inla_post_change.png")
+                        save_png = "./BNSSG/output/inla_post_change.png")
 
 #export everything using function 
 dir.create("results", showWarnings = FALSE)
-export_model_results(enet_model_score, inla_score, inla_post_score, outcome_name = "swd_pct_seg4_5", output_dir = "./results")
-export_model_results(enet_model_change, inla_change, inla_post_change, outcome_name = "swd_pct_seg4_5_yoy_change", output_dir = "./results")
+export_model_results(enet_model_score, inla_score, inla_post_score, outcome_name = "swd_pct_seg4_5", output_dir = "./BNSSG/output/")
+export_model_results(enet_model_change, inla_change, inla_post_change, outcome_name = "swd_pct_seg4_5_yoy_change", output_dir = "./BNSSG/output/")
 
