@@ -114,6 +114,7 @@ bnssg_long <- change_outcome(bnssg_long, swd_pct_seg4_5)
 #join mean change back into wide for table 1
 #calculate mean year on year change
 bnssg_yoy <- bnssg_long %>%
+  filter(year != 2021) %>%
   group_by(LSOA21CD) %>%
   summarise(
     swd_mean_cms_yoy_change = mean(swd_mean_cms_yoy_change, na.rm = TRUE),
