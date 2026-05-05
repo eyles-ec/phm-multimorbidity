@@ -125,39 +125,119 @@ gi_tmap <- function(sf_df,
                     resid_type = NULL, 
                     save_png = NULL) {
   
+  #set titles
   if (is.null(map_title)) {
     map_title <- map_col
   }
   
+  #resid title is contingent on the type of resids
   resid_title <- dplyr::case_when(
     resid_type == "enet" ~ "Elastic Net residuals",
     resid_type == "inla" ~ "INLA residuals",
     TRUE ~ "Residuals"
   )
   
+  #legend labels: outcome
+  
+  #values to generate quantiles
+  x_oc <- sf_df[[map_col]]
+  
+  #breaks (quantiles)
+  oc_breaks <- quantile(
+    x_oc,
+    probs = seq(0, 1, length.out = 6),
+    na.rm = TRUE
+  )
+  
+  #make labels
+  oc_labels <- sprintf(
+    "%.2f to %.2f",
+    oc_breaks[-length(oc_breaks)],
+    oc_breaks[-1]
+  )
+  
+  #residual breaks/labels 
+  
+  #values
+  x_resid <- sf_df[[resid_col]]
+  
+  #breaks 
+  resid_breaks <- quantile(
+      x_resid,
+      probs = seq(0, 1, length.out = 6),
+      na.rm = TRUE
+    )
+  
+  
+  #labels
+  resid_labels <- sprintf(
+    "%.2f to %.2f",
+    resid_breaks[-length(resid_breaks)],
+    resid_breaks[-1]
+  )
+  
+  #legend labels gi*
+  # values
+  x_gi <- sf_df[[gi_col]]
+  
+  # breaks
+  gi_breaks <- quantile(
+    x_gi,
+    probs = seq(0, 1, length.out = 6),
+    na.rm = TRUE
+  )
+  
+  # labels
+  gi_labels <- sprintf(
+    "%.2f to %.2f",
+    gi_breaks[-length(gi_breaks)],
+    gi_breaks[-1]
+  )
+  
+  #map panels
   tmap_mode("plot")
- 
   tm1 <- tm_shape(sf_df) +
-    tm_fill(map_col,
-            palette = "viridis",
-            style = "quantile",
-            title = map_title) +
-    tm_borders()
+    tm_polygons(
+      fill = map_col,
+      col  = NULL,
+      fill.scale = tm_scale_intervals(
+        breaks = oc_breaks,
+        values = "viridis"
+      ),
+      fill.legend = tm_legend(
+        title = map_title,
+        labels = oc_labels
+      )
+    )
   
   tm2 <- tm_shape(sf_df) +
-    tm_fill(resid_col,
-            palette = "-RdBu",
-            style = "quantile",
-            title = resid_title) +
-    tm_borders()
+    tm_polygons(
+      fill = resid_col,
+      col  = NULL,
+      fill.scale = tm_scale_intervals(
+        breaks = resid_breaks,
+        values = c("#2166ac", "#67a9cf", "#bdbdbd", "#f4a582", "#b2182b")
+      ),
+      fill.legend = tm_legend(
+        title = resid_title,
+        labels = resid_labels
+      )
+    )
   
   tm3 <- tm_shape(sf_df) +
-    tm_fill(gi_col,
-            palette = "-RdBu",
-            style = "quantile",
-            title = "Gi* (hot/cold spots)") +
-    tm_borders()
-  
+    tm_polygons(
+      fill = gi_col,
+      col  = NULL,
+      fill.scale = tm_scale_intervals(
+        breaks = gi_breaks,
+        values =  c("#2166ac", "#67a9cf", "#bdbdbd", "#f4a582", "#b2182b")
+      ),
+      fill.legend = tm_legend(
+        title = "Gi* (hot/cold spots)",
+        labels = gi_labels
+      )
+    )
+
   map <- tmap_arrange(tm1, tm2, tm3, ncol = 3)
   
   if (!is.null(save_png)) {
