@@ -8,7 +8,7 @@ generate_table1 <- function(data, group_var, continuous_vars,
                             variable_labels, row_groups,
                             title = "Table 1: Descriptive Summary by Group") {
   
-  #grouped summary 
+  #grouped summary
   cont_by_group <- data %>%
     dplyr::select(all_of(c(group_var, continuous_vars))) %>%
     pivot_longer(
@@ -59,6 +59,22 @@ generate_table1 <- function(data, group_var, continuous_vars,
     mutate(variable = factor(variable, levels = ordered_labels)) %>%
     arrange(variable)
   
+  #add N LSOAs per group (and overall)
+  n_row <- data %>%
+    group_by(.data[[group_var]]) %>%
+    summarise(N = n(), .groups = "drop") %>%
+    mutate(variable = "N (LSOAs)") %>%
+    pivot_wider(
+      names_from = all_of(group_var),
+      values_from = N
+    ) %>%
+    mutate(across(-variable, as.character))
+  
+  n_row$Overall <- as.character(nrow(data))
+
+  #bind N row to top of table
+  table1 <- bind_rows(n_row, table1)
+  
   return(table1)
 }
 
@@ -77,10 +93,13 @@ bnssg <- read.csv("./BNSSG/linked/bnssg_wide.csv")
 variable_labels <- c(
   
   #demographics
+  Registered_pop_total_24 = "Population registered at GP practices",
+  Resident_pop_total_24 = "Total population",
   swd_pct_female_24 = "Percent Female",
   swd_median_age_24 = "Median Age",
   swd_mean_age_24 = "Mean Age",
   popden = "Population Density",
+  chn2024 = "Residential Churn Index, 2024",
   unemp = "Percent unemployed",
   poor_health = "Percent Bad/Very Bad Health",
   asian = "Percent Asian",
@@ -88,27 +107,31 @@ variable_labels <- c(
   mixed = "Percent Mixed",
   white = "Percent White",
   other = "Percent Other",
-  IMD25_decile = "IMD Decile",
+  IMD25_decile = "IMD25 Decile",
   
   #CMS 2021
   swd_pct_seg4_5_21 = "Percent Segment 4-5, 2021",
   # swd_median_cms_21 = "Median CMS, 2021",
-  # swd_mean_cms_21 = "Mean CMS, 2021",
+  swd_mean_cms_21 = "Mean CMS, 2021",
   
   #CMS 2022
   swd_pct_seg4_5_22 = "Percent Segment 4-5, 2022",
   # swd_median_cms_22 = "Median CMS, 2022",
-  # swd_mean_cms_22 = "Mean CMS, 2022",
+  swd_mean_cms_22 = "Mean CMS, 2022",
   
   #CMS 2023
   swd_pct_seg4_5_23 = "Percent Segment 4-5, 2023",
   # swd_median_cms_23 = "Median CMS, 2023",
-  # swd_mean_cms_23 = "Mean CMS, 2023",
+  swd_mean_cms_23 = "Mean CMS, 2023",
   
   #CMS 2024
   swd_pct_seg4_5_24 = "Percent Segment 4-5, 2024",
   # swd_median_cms_24 = "Median CMS, 2024",
-  # swd_mean_cms_24 = "Mean CMS, 2024",
+  swd_mean_cms_24 = "Mean CMS, 2024",
+  
+  #CMS change
+  swd_mean_cms_yoy_change = "Mean change year on year of Mean CMS score",
+  swd_pct_seg4_5_yoy_change = "Mean change year on year of Percent Segment 4-5",
   
   #Pollution, using unicode to represent ugm3 in its proper form [µg/m³]
   benzene_2024_mean_ugm3 = "Benzene mean \u00B5g/m\u00B3",
@@ -134,11 +157,15 @@ continuous_vars <- names(variable_labels)
 
 #ordering list to order table, can be changed 
 row_groups <- list(
+  
   "Demographics" = c(
+    "Registered_pop_total_24",
+    "Resident_pop_total_24",
     "swd_pct_female_24",
     "swd_median_age_24",
     "swd_mean_age_24",
     "popden",
+    "chn2024",
     "unemp",
     "poor_health",
     "asian",
@@ -150,27 +177,28 @@ row_groups <- list(
   ),
   
   "Cambridge Multimorbidity Score 2021" = c(
-    "swd_pct_seg4_5_21"
-    # "swd_median_cms_21",
-    # "swd_mean_cms_21"
+    "swd_pct_seg4_5_21",
+    "swd_mean_cms_21"
   ),
   
   "Cambridge Multimorbidity Score 2022" = c(
-    "swd_pct_seg4_5_22"
-    # "swd_median_cms_22",
-    # "swd_mean_cms_22"
+    "swd_pct_seg4_5_22",
+    "swd_mean_cms_22"
   ),
   
   "Cambridge Multimorbidity Score 2023" = c(
-    "swd_pct_seg4_5_23"
-    # "swd_median_cms_23",
-    # "swd_mean_cms_23"
+    "swd_pct_seg4_5_23",
+    "swd_mean_cms_23"
   ),
   
   "Cambridge Multimorbidity Score 2024" = c(
-    "swd_pct_seg4_5_24"
-    # "swd_median_cms_24",
-    # "swd_mean_cms_24"
+    "swd_pct_seg4_5_24",
+    "swd_mean_cms_24"
+  ),
+  
+  "CMS Change" = c(
+    "swd_mean_cms_yoy_change",
+    "swd_pct_seg4_5_yoy_change"
   ),
   
   "Air Pollution" = c(

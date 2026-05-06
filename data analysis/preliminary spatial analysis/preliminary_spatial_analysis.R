@@ -196,6 +196,89 @@ moran_i <- function(
   )
 }
 
+run_analysis <- function(sf_data, outcome) {
+  
+  #ensure that outcome isn't a character
+  outcome_sym <- rlang::sym(outcome)
+  
+  #extract outcome values to check if there's any negatives
+  #if there are negatives then getis ord won't run (as it violates that assumption)
+  neg_check <- sf_data[[outcome]]
+  
+  ##run getis ord if there's no negatives in the data
+  if (all(neg_check >= 0, na.rm = TRUE)) {
+  
+  #global getis ord  
+    go <- getis_ord(
+      sf_data = sf_data,
+      outcome = !!outcome_sym,
+      title = paste0(outcome, " hotspots")
+    )
+    
+    #save global Getis-Ord
+    go_df <- data.frame(
+      global_G    = unname(go$global_go$statistic),
+      p_value     = go$global_go$p.value,
+      expectation = go$global_go$estimate[1],
+      variance    = go$global_go$estimate[2]
+    )
+    
+    write.csv(
+      go_df,
+      file.path("./BNSSG/output/prelim_spat",
+                paste0("bnssg_global_getis_ord_", outcome, ".csv")),
+      row.names = FALSE
+    )
+    
+    #save map
+    ggsave(
+      filename = file.path("./BNSSG/output/prelim_spat",
+                           paste0("bnssg_getis_ord_", outcome, "_hotspots.png")),
+      plot = go$map,
+      width = 8,
+      height = 10,
+      dpi = 300
+    )
+    
+  } else {
+    
+    message("Skipping Getis-Ord for ", outcome, "as it contains negative values")
+    
+  }
+  
+  
+  #moran's I 
+  mi <- moran_i(
+    sf_data = sf_data,
+    outcome = !!outcome_sym,
+    title = paste0(outcome, " clustering")
+  )
+  
+  mi_df <- data.frame(
+    moran_I     = unname(mi$global_mi$estimate["Moran I statistic"]),
+    p_value     = mi$global_mi$p.value,
+    expectation = unname(mi$global_mi$estimate["Expectation"]),
+    variance    = unname(mi$global_mi$estimate["Variance"])
+  )
+  
+  write.csv(
+    mi_df,
+    file.path("./BNSSG/output/prelim_spat",
+              paste0("bnssg_global_moran_i_", outcome, ".csv")),
+    row.names = FALSE
+  )
+  
+  #save Moran I map
+  ggsave(
+    filename = file.path("./BNSSG/output/prelim_spat",
+                         paste0("bnssg_moran_i_", outcome, "_lisa.png")),
+    plot = mi$map,
+    width = 8,
+    height = 10,
+    dpi = 300
+  )
+}
+
 #pull wd from paths.R (put in .gitignore)
 source("../paths.R")
 
@@ -223,88 +306,19 @@ bnssg <- bnssg_map %>% left_join(bnssg_csv, by = "LSOA21CD")
 #save memory by removing english sf data and extra bnssg files
 rm(england, bnssg_csv, bnssg_map)
 
-#run
-gi_results <- getis_ord(
-  sf_data = bnssg,
-  outcome = swd_pct_seg4_5,
-  title = "Cambridge Multimorbidity Score, % in Segments 4–5 hotspots"
+#list outcomes for 'walk' loop (purrr)
+outcomes <- c(
+  "swd_pct_seg4_5",
+  "swd_pct_seg4_5_yoy_change",
+  "swd_mean_cms",
+  "swd_mean_cms_yoy_change"
 )
 
-#save the global getis ord results, stick it into a df first
-gi_df <- data.frame(
-  global_G     = unname(results$global_go$statistic),
-  p_value      = results$global_go$p.value,
-  expectation  = results$global_go$estimate[1],
-  variance     = results$global_go$estimate[2]
-)
+#create output directory
+dir.create("./BNSSG/output/prelim_spat", recursive = TRUE, showWarnings = FALSE)
 
-write.csv(
-  gi_df,
-  "bnssg_global_getis_ord_swd_pct_seg4_5.csv",
-  row.names = FALSE
-)
-
-#save the map
-ggsave(
-  filename = "bnssg_getis_ord_swd_pct_seg4_5_hotspots.png",
-  plot = results$map,
-  width = 8,
-  height = 10,
-  dpi = 300
-)
-
-#run moran's i for cms score segments
-moran_results_score <- moran_i(sf_data = bnssg,  outcome = swd_pct_seg4_5,
-                          title = "Cambridge Multimorbidity Score,  % Segments 4–5 hotspots")
-
-#run moran's i for change
-moran_results_change <- moran_i(sf_data = bnssg,  outcome = swd_pct_seg4_5_yoy_change,
-                       title = "Cambridge Multimorbidity Score, Change in % Segments 4–5 Clustering")
-
-#save the global Moran’s I results (score)
-mi_score_df <- data.frame(
-  moran_I     = unname(moran_results_score$global_mi$estimate["Moran I statistic"]),
-  p_value     = moran_results_score$global_mi$p.value,
-  expectation = unname(moran_results_score$global_mi$estimate["Expectation"]),
-  variance    = unname(moran_results_score$global_mi$estimate["Variance"])
-)
-
-write.csv(
-  mi_score_df,
-  "bnssg_global_moran_i_swd_pct_seg4_5.csv",
-  row.names = FALSE
-)
-
-#save the global Moran’s I results (change)
-mi_change_df <- data.frame(
-  moran_I     = unname(moran_results_change$global_mi$estimate["Moran I statistic"]),
-  p_value     = moran_results_change$global_mi$p.value,
-  expectation = unname(moran_results_change$global_mi$estimate["Expectation"]),
-  variance    = unname(moran_results_change$global_mi$estimate["Variance"])
-)
-
-write.csv(
-  mi_change_df,
-  "bnssg_global_moran_i_swd_pct_seg4_5_yoy_change.csv",
-  row.names = FALSE
-)
-
-#save Moran’s I map — score
-ggsave(
-  filename = "bnssg_moran_i_swd_pct_seg4_5_lisa.png",
-  plot = moran_results_score$map,
-  width = 8,
-  height = 10,
-  dpi = 300
-)
-
-#save Moran’s I map — change
-ggsave(
-  filename = "bnssg_moran_i_swd_pct_seg4_5_yoy_change_lisa.png",
-  plot = moran_results_change$map,
-  width = 8,
-  height = 10,
-  dpi = 300
-)
-
+#use 'walk' to run the wrapper function that goes through global getis ord, local Gi map, Moran's I and Moran's I map for each outcome
+#this means it does all the running of the getis_ord and moran_i functions and then saves the elements generated
+#it will not run getis ord on change outcomes because you need positive values but this is done automatically in-function
+walk(outcomes, ~ run_analysis(bnssg, .x))
 
