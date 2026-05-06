@@ -12,9 +12,8 @@ descriptive_maps <- function(
     palette = "viridis",
     n_classes = 5,
     style = "quantile",
-    overlay = NULL,
-    overlay_name = NULL,
-    overlay_col = "black",
+    breaks = NULL,
+    midpoint = NULL,
     legend_title = NULL
 ) {
   
@@ -38,33 +37,33 @@ descriptive_maps <- function(
       
     #continuous variables
     } else {
+
+      #choose scale depending on whether breaks are supplied
+      fill_scale <- if (!is.null(breaks)) {
+        tm_scale_intervals(
+          style  = "fixed",
+          breaks = breaks,
+          values = palette,
+          midpoint = midpoint
+        )
+      } else {
+        tm_scale_intervals(
+          style  = style,
+          n      = n_classes,
+          values = palette
+        )
+      }
       
       tm <- tm +
         tm_polygons(
           fill = rlang::as_string(var),
           col  = NULL,
-          fill.scale = tm_scale_intervals(
-            style  = style,
-            n      = n_classes,
-            values = palette
-          ),
+          fill.scale = fill_scale,
           fill.legend = tm_legend(
-            title = legend_title %||%
-              rlang::as_string(var)
+            title = legend_title %||% rlang::as_string(var),
+            )
           )
-        )
     }
-  
-  #Optional overlay (e.g. roads, boundaries), artefact of epri repo
-  if (!is.null(overlay)) {
-    
-    overlay <- sf::st_transform(overlay, sf::st_crs(bnssg))
-    overlay <- sf::st_intersection(overlay, bnssg)
-    
-    tm <- tm +
-      tm_shape(overlay) +
-      tm_lines(col = overlay_col, lwd = 1)
-  }
   
   #Layout and map decorations
   tm +
@@ -142,38 +141,44 @@ bnssg$above10 <- bnssg$swd_pct_seg4_5 > 10
 bnssg$recentred <- bnssg$swd_pct_seg4_5 - 10
 
 
-#map specifications in tibble, which allows us to call the mapping function over this list of maps
+#map specifications in tribble, which allows us to call the mapping function over this list of maps
 
 map_specs <- tribble(
-  ~var,                  ~palette,        ~style,      ~n_classes, ~legend_title,                                 ~filename,
+  ~var, ~palette, ~style, ~n_classes, ~breaks, ~midpoint, ~legend_title, ~filename,
   
   #CMS Segment 4–5
-  "swd_pct_seg4_5",      "viridis",        "quantile",  5,          "% in segment 4–5",                            "seg45_pct.png",
-  "above10",             c("lightblue",
-                           "pink"),        NULL,        2,          ">10% in seg 4–5",                             "seg45_above10.png",
-  "recentred",           "-RdBu",          "quantile",  5,          "Recentred (10% = 0)",                          "seg45_recentred.png",
-  "swd_pct_seg4_5_yoy_change", "-RdBu",    "quantile",  5,          "Change in CMS 4–5",              "seg45_yoy_change.png",
+  "swd_pct_seg4_5",      "viridis",  "quantile", 5, NA,   NA, "% in segment 4–5", "seg45_pct.png",
+  "above10",             c("lightblue","pink"), NULL, 2, NA,   NA, ">10% in seg 4–5", "seg45_above10.png",
+  "recentred",           "-RdBu",    "quantile", 5, NA,   0,  "Recentred (10% = 0)", "seg45_recentred.png",
   
-  # Deprivation
-  "IMD25",               "-viridis",       "quantile",  5,          "IMD25 quintile",                              "imd25_quintile.png",
+  #yoy change in seg 4-5
+  "swd_pct_seg4_5_yoy_change", "-RdBu", "fixed", NA,
+  list(c(-15, -2, -0.1, 0.1, 2, 25)),   0,
+  "Change in CMS 4–5", "seg45_yoy_change.png",
   
-  # Environment
-  "pm10_2024_mean_ugm3", "inferno",        "quantile",  5,          "PM10 (µg/m³, 2024 mean)",                     "pm10_2024_mean.png",
+  #Deprivation
+  "IMD25", "-viridis", "quantile", 5, NA, NA, "IMD25 quintile", "imd25_quintile.png",
   
-  # Demographics
-  "swd_mean_age",        "plasma",         "quantile",  5,          "Mean age (years)",                            "mean_age.png",
-  "white",               "viridis",        "quantile",  5,          "% White",                                     "pct_white.png",
+  #Environment
+  "pm10_2024_mean_ugm3", "inferno", "quantile", 5, NA, NA, "PM10 (µg/m³, 2024 mean)", "pm10_2024_mean.png",
   
-  # CMS
-  "swd_mean_cms",        "viridis",        "quantile",  5,          "Mean CMS",                                    "mean_cms.png",
-  "swd_mean_cms_yoy_change", "-RdBu",      "quantile",  5,          "Change in Mean CMS",            "mean_cms_yoy_change.png",
+  #Demographics
+  "swd_mean_age", "plasma", "quantile", 5, NA, NA, "Mean age (years)", "mean_age.png",
+  "white", "viridis", "quantile", 5, NA, NA, "% White", "pct_white.png",
   
-  # Built environment
-  "Residential.gardens", "viridis",        "quantile",  5,          "Residential gardens (%)",                    "residential_gardens.png",
-  "road_density_km_per_km2",        "magma",          "quantile",  5,          "Road density (km/km²)",                      "road_density.png",
-  "popden",              "turbo",          "quantile",  5,          "Population density (per km²)",               "population_density.png"
+  #Mean CMS
+  "swd_mean_cms", "viridis", "quantile", 5, NA, NA, "Mean CMS", "mean_cms.png",
+  
+  #mean CMS yoy
+  "swd_mean_cms_yoy_change", "-RdBu", "fixed", NA,
+  list(c(-0.35, -0.05, -0.005, 0.005, 0.05, 0.4)), 0,
+  "Change in Mean CMS", "mean_cms_yoy_change.png",
+  
+  #Built environment
+  "Residential.gardens", "viridis", "quantile", 5, NA, NA, "Residential gardens (%)", "residential_gardens.png",
+  "road_density_km_per_km2", "magma", "quantile", 5, NA, NA, "Road density (km/km²)", "road_density.png",
+  "popden", "turbo", "quantile", 5, NA, NA, "Population density (per km²)", "population_density.png"
 )
-
 
 #generate maps, using purrr's pmap, pmap applies a function once per row, using multiple inputs
 #for each row of map_specs, call the function descriptive_maps, using each column as an argument 
@@ -182,13 +187,15 @@ tmap_mode("plot")
 
 maps <- pmap(
   map_specs,
-  function(var, palette, style, n_classes, legend_title, filename) {
+  function(var, palette, style, n_classes, breaks, midpoint, legend_title, filename) {
     descriptive_maps(
       bnssg        = bnssg,
       var          = !!rlang::sym(var),
       palette      = palette,
       style        = style,
       n_classes    = n_classes,
+      breaks       = if (!is.na(breaks[[1]][1])) breaks[[1]] else NULL,
+      midpoint     = midpoint,
       legend_title = legend_title
     )
   }
