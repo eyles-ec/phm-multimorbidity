@@ -7,7 +7,7 @@ library(rlang)
 
 #plot outcomes (or anything really) over time by LAD and overall
 #supplying a filename saves it with default quality values
-outcomes_plot <- function(data,
+plot_outcomes <- function(data,
                                  outcome,
                                  y_label,
                                  title,
@@ -74,7 +74,12 @@ outcomes_plot <- function(data,
     theme_minimal() +
     theme(
       legend.position = "right"
+    ) +
+  scale_x_continuous(
+    breaks = sort(unique(data$year)),
+    labels = function(x) as.integer(x)
     )
+  
   
   #export plot if a filename is supplied
   if (!is.null(filename)) {
@@ -114,6 +119,16 @@ plot_outcomes(
   filename = "percent_seg4_5_overall_lad.png"
 )
 
+#percent in segs 4-5 yoy change, excluding 2021 which is baseline year (so change of 0)
+plot_outcomes(
+  data = bnssg %>% filter(year != "2021"),
+  outcome = swd_pct_seg4_5_yoy_change,
+  y_label = "Year on Year Change in Segment 4–5 (%)",
+  title = "Year on Year Change in Percent in CMS 4–5",
+  subtitle = "Overall and LAD-specific trends, 2021–2024",
+  filename = "percent_seg4_5_yoy_overall_lad.png"
+)
+
 #mean cms
 plot_outcomes(
   data = bnssg,
@@ -122,4 +137,14 @@ plot_outcomes(
   title = "Mean Cambridge Multimorbidity Score Over Time",
   subtitle = "Overall and LAD-specific trends, 2021–2024",
   filename = "mean_cms_overall_lad.png"
+)
+
+#mean cms yoy change, excluding 2021 which is baseline year (so change of 0)
+plot_outcomes(
+  data = bnssg %>% filter(year != 2021),
+  outcome = swd_mean_cms_yoy_change,
+  y_label = "Change in Mean Cambridge Multimorbidity Score",
+  title = "Year on Year Change in Mean Cambridge Multimorbidity Score",
+  subtitle = "Overall and LAD-specific trends, 2021–2024",
+  filename = "mean_cms_yoy_overall_lad.png"
 )
