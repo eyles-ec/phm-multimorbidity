@@ -147,26 +147,31 @@ bnssg$recentred <- bnssg$swd_pct_seg4_5 - 10
 map_specs <- tribble(
   ~var,                  ~palette,        ~style,      ~n_classes, ~legend_title,                                 ~filename,
   
-  # Segment 4–5
+  #CMS Segment 4–5
   "swd_pct_seg4_5",      "viridis",        "quantile",  5,          "% in segment 4–5",                            "seg45_pct.png",
   "above10",             c("lightblue",
                            "pink"),        NULL,        2,          ">10% in seg 4–5",                             "seg45_above10.png",
   "recentred",           "-RdBu",          "quantile",  5,          "Recentred (10% = 0)",                          "seg45_recentred.png",
+  "swd_pct_seg4_5_yoy_change", "-RdBu",    "quantile",  5,          "Change in CMS 4–5",              "seg45_yoy_change.png",
   
   # Deprivation
-  "IMD25",        "-viridis",       "quantile",     5,         "IMD25 quintile",         "imd25_quintile.png",
+  "IMD25",               "-viridis",       "quantile",  5,          "IMD25 quintile",                              "imd25_quintile.png",
   
   # Environment
-  "pm10_2024_mean_ugm3", "inferno",         "quantile",  5,          "PM10 (µg/m³, 2024 mean)",           "pm10_2024_mean.png",
+  "pm10_2024_mean_ugm3", "inferno",        "quantile",  5,          "PM10 (µg/m³, 2024 mean)",                     "pm10_2024_mean.png",
   
   # Demographics
-  "swd_mean_age",        "plasma",          "quantile",  5,          "Mean age (years)",                           "mean_age.png",
-  "white",               "viridis",         "quantile",  5,          "% White",                                    "pct_white.png",
+  "swd_mean_age",        "plasma",         "quantile",  5,          "Mean age (years)",                            "mean_age.png",
+  "white",               "viridis",        "quantile",  5,          "% White",                                     "pct_white.png",
+  
+  # CMS
+  "swd_mean_cms",        "viridis",        "quantile",  5,          "Mean CMS",                                    "mean_cms.png",
+  "swd_mean_cms_yoy_change", "-RdBu",      "quantile",  5,          "Change in Mean CMS",            "mean_cms_yoy_change.png",
   
   # Built environment
-  "Residential.gardens", "viridis",         "quantile",  5,          "Residential gardens (%)",                   "residential_gardens.png",
-  "road_density",        "magma",            "quantile",  5,          "Road density (km/km²)",                     "road_density.png",
-  "popden",              "turbo",            "quantile",  5,          "Population density (per km²)",              "population_density.png"
+  "Residential.gardens", "viridis",        "quantile",  5,          "Residential gardens (%)",                    "residential_gardens.png",
+  "road_density_km_per_km2",        "magma",          "quantile",  5,          "Road density (km/km²)",                      "road_density.png",
+  "popden",              "turbo",          "quantile",  5,          "Population density (per km²)",               "population_density.png"
 )
 
 
@@ -192,7 +197,7 @@ maps <- pmap(
 #export the list of maps from the above, as pmap will return a list of maps, use the filenames from map_specs
 export_maps(
   maps      = maps,
-  filenames = file.path("./outputs/maps", map_specs$filename),
+  filenames = file.path("./BNSSG/output/maps", map_specs$filename),
   width     = 1920,
   height    = 1080,
   dpi       = 300
