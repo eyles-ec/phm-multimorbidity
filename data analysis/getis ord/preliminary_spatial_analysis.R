@@ -198,39 +198,54 @@ moran_i <- function(
 
 run_analysis <- function(sf_data, outcome) {
   
+  #ensure that outcome isn't a character
   outcome_sym <- rlang::sym(outcome)
   
-  #getis_ord
-  go <- getis_ord(
-    sf_data = sf_data,
-    outcome = !!outcome_sym,
-    title = paste0(outcome, " hotspots")
-  )
+  #extract outcome values to check if there's any negatives
+  #if there are negatives then getis ord won't run (as it violates that assumption)
+  neg_check <- sf_data[[outcome]]
   
-  #save global Getis-Ord
-  go_df <- data.frame(
-    global_G    = unname(go$global_go$statistic),
-    p_value     = go$global_go$p.value,
-    expectation = go$global_go$estimate[1],
-    variance    = go$global_go$estimate[2]
-  )
+  ##run getis ord if there's no negatives in the data
+  if (all(neg_check >= 0, na.rm = TRUE)) {
   
-  write.csv(
-    go_df,
-    file.path("./BNSSG/output/prelim_spat",
-              paste0("bnssg_global_getis_ord_", outcome, ".csv")),
-    row.names = FALSE
-  )
+  #global getis ord  
+    go <- getis_ord(
+      sf_data = sf_data,
+      outcome = !!outcome_sym,
+      title = paste0(outcome, " hotspots")
+    )
+    
+    #save global Getis-Ord
+    go_df <- data.frame(
+      global_G    = unname(go$global_go$statistic),
+      p_value     = go$global_go$p.value,
+      expectation = go$global_go$estimate[1],
+      variance    = go$global_go$estimate[2]
+    )
+    
+    write.csv(
+      go_df,
+      file.path("./BNSSG/output/prelim_spat",
+                paste0("bnssg_global_getis_ord_", outcome, ".csv")),
+      row.names = FALSE
+    )
+    
+    #save map
+    ggsave(
+      filename = file.path("./BNSSG/output/prelim_spat",
+                           paste0("bnssg_getis_ord_", outcome, "_hotspots.png")),
+      plot = go$map,
+      width = 8,
+      height = 10,
+      dpi = 300
+    )
+    
+  } else {
+    
+    message("Skipping Getis-Ord for ", outcome, "as it contains negative values")
+    
+  }
   
-  #save map
-  ggsave(
-    filename = file.path("./BNSSG/output/prelim_spat",
-                         paste0("bnssg_getis_ord_", outcome, "_hotspots.png")),
-    plot = go$map,
-    width = 8,
-    height = 10,
-    dpi = 300
-  )
   
   #moran's I 
   mi <- moran_i(
@@ -304,5 +319,6 @@ dir.create("./BNSSG/output/prelim_spat", recursive = TRUE, showWarnings = FALSE)
 
 #use 'walk' to run the wrapper function that goes through global getis ord, local Gi map, Moran's I and Moran's I map for each outcome
 #this means it does all the running of the getis_ord and moran_i functions and then saves the elements generated
+#it will not run getis ord on change outcomes because you need positive values but this is done automatically in-function
 walk(outcomes, ~ run_analysis(bnssg, .x))
 
