@@ -312,13 +312,11 @@ inla_post_map <- function(
     sf_df,
     fitted_mean,
     outcome,
-    exceed_prob,
     save_png = NULL,
     title_prefix = "INLA"
 ) {
   
   tmap_mode("plot")
-  
   
   tm1 <- tm_shape(sf_df) +
     tm_polygons(
@@ -348,21 +346,7 @@ inla_post_map <- function(
       )
     )
   
-  tm3 <- tm_shape(sf_df) +
-    tm_polygons(
-      fill = exceed_prob,
-      col  = NULL,
-      fill.scale = tm_scale_intervals(
-        style = "fixed",
-        breaks = c(0, 0.2, 0.5, 0.8, 1),
-        values = "plasma"
-      ),
-      fill.legend = tm_legend(
-        title = "Exceedance probability"
-      )
-    )
-  
-  map <- tmap_arrange(tm1, tm2, tm3, ncol = 3)
+  map <- tmap_arrange(tm1, tm2, ncol = 2)
   
   if (!is.null(save_png)) {
     tmap_save(map, save_png, dpi = 300, width = 10, height = 4)
@@ -471,6 +455,124 @@ export_model_results <- function(
   ))
 }
 
+#small helper function to remove other outcomes from data, used in wrapper function below
+make_model_data <- function(data, outcome, all_outcomes) {
+  other_outcomes <- setdiff(all_outcomes, outcome)
+  data %>%
+    select(-any_of(other_outcomes))
+}
+
+#function to run entire modelling pipeline so can efficiently run across and save all outcomes
+run_models <- function(bnssg, bnssg_clean, outcome, outcomes, lw, nb) {
+  
+  outcome_sym <- rlang::sym(outcome)
+  
+  #prepare modelling data (e.g. exclude other outcomes on whatever iteration)
+  model_data <- make_model_data(bnssg_clean, outcome, outcomes)
+  
+  #elastic net for variable selection
+  enet_model <- enet(model_data, outcome, lw)
+  
+  #residuals and lag used to compute gi and make maps
+  resid_col <- enet_model$resid
+  lag_col   <- enet_model$lag_col
+  
+  #add residual + lag
+  bnssg[[resid_col]] <- enet_model$df[[resid_col]]
+  bnssg[[lag_col]]   <- enet_model$df[[lag_col]]
+  
+  #compute local Gi*
+  gi_col <- paste0("gi_", resid_col)
+  bnssg[[gi_col]] <- as.numeric(localG(bnssg[[resid_col]], lw))
+  
+  #set map title referring to outcome labels tibble created earlier
+  map_title <- outcome_labels$map_title[
+    match(outcome, outcome_labels$outcome)
+  ]
+  
+  #save elastic net resids map
+  gi_tmap(
+    bnssg,
+    outcome,
+    resid_col,
+    gi_col,
+    map_title = map_title,
+    resid_type = "enet",
+    save_png = file.path("./BNSSG/output/models",
+                         paste0("enet_", outcome, ".png"))
+  )
+  
+  #run inla and do post-estimation getis ord with resids
+  #need to make sf version of the dataset for inla
+  inla_data <- make_model_data(bnssg, outcome, outcomes)
+  
+  #run inla
+  inla_model_res <- inla_model(
+    inla_data,
+    outcome,
+    enet_model$selected_vars,
+    nb
+  )
+  
+  #pull out resids etc for gi
+  resid_col_inla <- paste0("resid_inla_", outcome)
+  gi_col_inla    <- paste0("gi_resid_inla_", outcome)
+  
+  bnssg[[resid_col_inla]] <- inla_model_res$data$resid_inla
+  bnssg[[gi_col_inla]]   <- as.numeric(localG(bnssg[[resid_col_inla]], lw))
+  
+  #save INLA map for Getis ord
+  gi_tmap(
+    bnssg,
+    outcome,
+    resid_col_inla,
+    gi_col_inla,
+    map_title = map_title,
+    resid_type = "inla",
+    save_png = file.path("./BNSSG/output/models",
+                         paste0("inla_", outcome, ".png"))
+  )
+  
+  #inla postestimation
+  
+  #set outcome type based on outcome name
+  outcome_type <- if (grepl("yoy", outcome)) "change" else "score"
+  
+  #threshold for outcome type (aka probabilites stuff)
+  threshold <- if (outcome_type == "change") 0 else 10
+  
+  #run postestimation
+  post <- inla_postestimation(
+    inla_model_res,
+    outcome,
+    outcome_type = outcome_type,
+    threshold = threshold,
+    nb
+  )
+  
+  #spatial dataframe for post-estimation map
+  sf_map <- inla_model_res$data %>%
+    left_join(post$fitted, by = c("LSOA21CD", "year"))
+  
+  #inla post-estimation map
+  inla_post_map(
+    sf_df = sf_map,
+    fitted_mean = "fitted_mean",
+    outcome = "observed",
+    save_png = file.path("./BNSSG/output/models",
+                         paste0("inla_post_", outcome, ".png"))
+  )
+  
+  #save model results to csv
+  export_model_results(
+    enet_model,
+    inla_model_res,
+    post,
+    outcome_name = outcome,
+    output_dir = "./BNSSG/output/models"
+  )
+}
+
 
 #pull wd from paths.R (put in .gitignore)
 source("../paths.R")
@@ -501,7 +603,6 @@ bnssg <- bnssg_map %>% left_join(bnssg_csv, by = "LSOA21CD")
 
 #Variables to exclude from the model matrix
 exclude_vars <- c(
-  "LSOA21CD",
   "LSOA21NM.x",
   "GlobalID",
   "LSOA21NM.y",
@@ -516,11 +617,9 @@ exclude_vars <- c(
   "area_km2",
   "IMD25",
   "swd_median_age",
-  "swd_mean_cms", #rm for now
   "swd_median_cms", #rm for now
   "swd_pct_seg4_5_abs_change",
-  "swd_mean_cms_abs_change" ,     
-  "swd_mean_cms_yoy_change" 
+  "swd_mean_cms_abs_change"     
 )
 
 #impute pollution with k nearest neighbours
@@ -556,113 +655,29 @@ lw <- nb2listw(nb, style = "B")
 #drop geometry for modelling, only necessary if running as a pipeline
 bnssg_clean <- st_drop_geometry(bnssg_clean)
 
-#remove other outcome
-bnssg_score <- bnssg_clean |>
-  select(
-    -swd_pct_seg4_5_yoy_change
+outcomes <- c(
+  "swd_pct_seg4_5",
+  "swd_pct_seg4_5_yoy_change",
+  "swd_mean_cms",
+  "swd_mean_cms_yoy_change"
+)
+
+outcome_labels <- tibble(
+  outcome = c(
+    "swd_pct_seg4_5",
+    "swd_pct_seg4_5_yoy_change",
+    "swd_mean_cms",
+    "swd_mean_cms_yoy_change"
+  ),
+  map_title = c(
+    "Proportion in CMS Segments 4–5",
+    "Year-on-Year Change in CMS Segments 4–5",
+    "Mean Cambridge Multimorbidity Score",
+    "Year-on-Year Change in Mean CMS"
   )
+)
 
-bnssg_change <- bnssg_clean |>
-  select(
-    -swd_pct_seg4_5
-  )
+#create output directory
+dir.create("./BNSSG/output/models", recursive = TRUE, showWarnings = FALSE)
 
-#elastic net model
-enet_model_score <- enet(bnssg_score, "swd_pct_seg4_5", lw)
-enet_model_change <- enet(bnssg_change, "swd_pct_seg4_5_yoy_change", lw)
-
-#pull out enet names
-resid_col_score <- enet_model_score$resid
-lag_col_score   <- enet_model_score$lag_col
-
-resid_col_change <- enet_model_change$resid
-lag_col_change <- enet_model_change$lag_col
-
-#add residual and lag back to sf object
-bnssg[[resid_col_score]] <- enet_model_score$df[[resid_col_score]]
-bnssg[[lag_col_score]]   <- enet_model_score$df[[lag_col_score]]
-bnssg[[resid_col_change]] <- enet_model_change$df[[resid_col_change]]
-bnssg[[lag_col_change]]   <- enet_model_change$df[[lag_col_change]]
-
-#create container for gi 
-gi_col_score <- paste0("gi_", resid_col_score)
-gi_col_change <- paste0("gi_", resid_col_change)
-
-#calculate local gi
-bnssg[[gi_col_score]] <- as.numeric(localG(bnssg[[resid_col_score]], lw))
-bnssg[[gi_col_change]] <- as.numeric(localG(bnssg[[resid_col_change]], lw))
-
-#generate three panel map, save using function
-enet_map_score <- gi_tmap(bnssg, "swd_pct_seg4_5", "resid_swd_pct_seg4_5", "gi_resid_swd_pct_seg4_5", map_title = "Proportion in CMS 4-5", resid_type = "enet", save_png = "./BNSSG/output/enet_score.png")
-enet_map_change <- gi_tmap(bnssg, "swd_pct_seg4_5_yoy_change", "resid_swd_pct_seg4_5_yoy_change", "gi_resid_swd_pct_seg4_5_yoy_change", map_title = "Yearly Change in CMS 4-5", resid_type = "enet", save_png = "./BNSSG/output/enet_change.png")
-
-#create inla models as residuals still show clustering
-
-#subset out outcomes
-bnssg_score <- bnssg|>
-  select(
-    -swd_pct_seg4_5_yoy_change
-  )
-
-bnssg_change <- bnssg |>
-  select(
-    -swd_pct_seg4_5
-  )
-
-#run inla function
-inla_score <- inla_model(bnssg_score, "swd_pct_seg4_5", enet_model_score$selected_vars, nb)
-inla_change <- inla_model(bnssg_change, "swd_pct_seg4_5_yoy_change", enet_model_change$selected_vars, nb)
-
-#pull out inla names
-resid_col_inla_score <- "resid_inla_score"
-gi_col_inla_score    <- "gi_resid_inla_score"
-resid_col_inla_change <- "resid_inla_change"
-gi_col_inla_change <- "gi_resid_inla_change"
-
-#add residual and local gi
-bnssg[[resid_col_inla_score]] <- inla_score$data$resid_inla
-bnssg[[gi_col_inla_score]] <- as.numeric(localG(bnssg[[resid_col_inla_score]], lw))
-bnssg[[resid_col_inla_change]] <- inla_change$data$resid_inla
-bnssg[[gi_col_inla_change]] <- as.numeric(localG(bnssg[[resid_col_inla_change]], lw))
-
-
-#generate three panel map, save
-inla_map_score <- gi_tmap(bnssg, "swd_pct_seg4_5", resid_col_inla_score, gi_col_inla_score, map_title = "Proportion in CMS 4-5", resid_type = "inla", save_png = "inla_score.png")
-inla_map_change <- gi_tmap(bnssg, "swd_pct_seg4_5_yoy_change", resid_col_inla_change, gi_col_inla_change, map_title = "Change in CMS 4-5", resid_type = "inla", save_png = "inla_change.png")
-
-#other inla postestimation
-inla_post_score <- inla_postestimation(inla_score, "swd_pct_seg4_5", outcome_type = "score",threshold=10, nb)
-inla_post_change<- inla_postestimation(inla_change, "swd_pct_seg4_5_yoy_change", outcome_type = "change", threshold = 0, nb)
-
-#join fitted values to inla data by LSOA and year
-sf_map_score <- inla_score$data |>
-  dplyr::left_join(
-    inla_post_score$fitted,
-    by = c("LSOA21CD", "year")
-  )
-
-sf_map_change <- inla_change$data |>
-  dplyr::left_join(
-    inla_post_change$fitted,
-    by = c("LSOA21CD", "year")
-  )
-
-inla_post_score_map <-inla_post_map(
-                      sf_df = sf_map_score,    
-                      fitted_mean  = "fitted_mean",
-                      outcome   = "observed",
-                      exceed_prob  = "p_above_threshold",
-                      save_png = "./BNSSG/output/inla_post_score.png")
-
-inla_post_change_map <-inla_post_map(
-                        sf_df = sf_map_change,    
-                        fitted_mean  = "fitted_mean",
-                        outcome   = "observed",
-                        exceed_prob  = "p_positive_change",
-                        save_png = "./BNSSG/output/inla_post_change.png")
-
-#export everything using function 
-dir.create("results", showWarnings = FALSE)
-export_model_results(enet_model_score, inla_score, inla_post_score, outcome_name = "swd_pct_seg4_5", output_dir = "./BNSSG/output/")
-export_model_results(enet_model_change, inla_change, inla_post_change, outcome_name = "swd_pct_seg4_5_yoy_change", output_dir = "./BNSSG/output/")
-
+walk(outcomes, ~ run_models(bnssg, bnssg_clean, .x, outcomes, lw, nb))
