@@ -96,6 +96,7 @@ variable_labels <- c(
   Registered_pop_total_24 = "Population registered at GP practices",
   Resident_pop_total_24 = "Total population",
   swd_pct_female_24 = "Percent Female",
+  over64 = "Percent over 64",
   swd_median_age_24 = "Median Age",
   swd_mean_age_24 = "Mean Age",
   popden = "Population Density",
@@ -140,6 +141,15 @@ variable_labels <- c(
   pm10_2024_mean_ugm3 = "PM10 mean \u00B5g/m\u00B3",
   pm2_5_2024_mean_ugm3 = "PM2.5 mean \u00B5g/m\u00B3",
   so2_2024_mean_ugm3 = "SO2 mean \u00B5g/m\u00B3",
+
+  #radon
+  radon_no_action = "Proportion requiring no radon action",
+  radon_basic_action = "Proportion requiring basic radon action",
+  radon_full_action = "Proportion requiring full radon action",
+  
+  #powerlines
+  all_ug_km = "Underground Power Cables/km",
+  all_oh_km = "Overhead Power Lines/km",
   
   #Built Environment, same for km2 
   road_density_km_per_km2 = "Road density, km/km\u00B2",
@@ -164,6 +174,7 @@ row_groups <- list(
     "swd_pct_female_24",
     "swd_median_age_24",
     "swd_mean_age_24",
+    "over64",
     "popden",
     "chn2024",
     "unemp",
@@ -210,6 +221,17 @@ row_groups <- list(
     "so2_2024_mean_ugm3"
   ),
   
+  "Radon" = c(
+    "radon_no_action",
+    "radon_basic_action",
+    "radon_full_action"
+  ),
+  
+  "Power Infrastructure" = c(
+    "all_ug_km",
+    "all_oh_km"
+  ),
+  
   "Built Environment" = c(
     "road_density_km_per_km2",
     "intersection_density_per_km2"
@@ -228,6 +250,29 @@ split_group <- "LAD22NM"
 
 #run table 1
 t1 <- generate_table1(bnssg, split_group, continuous_vars, variable_labels, row_groups)
+
+#trick to generate/append % rurality because it's a categorical and I don't want to rewrite the function
+
+rural <- bnssg %>%
+  group_by(LAD22NM) %>%
+  summarise(
+    value = as.character(round(100 * mean(urban_rural == "Rural"), 1)),
+    .groups = "drop"
+  ) %>%
+  bind_rows(
+    tibble(
+      LAD22NM = "Overall",
+      value = as.character(round(100 * mean(bnssg$urban_rural == "Rural"), 1))
+    )
+  ) %>%
+  pivot_wider(
+    names_from = LAD22NM,
+    values_from = value
+  ) %>%
+  mutate(variable = "Percent Rural (RUC)") %>%
+  select(variable, everything())
+
+t1 <- bind_rows(t1, rural)
 
 #save table file for output, create directory if an issue
 dir.create("./BNSSG/output", recursive = TRUE, showWarnings = FALSE)
