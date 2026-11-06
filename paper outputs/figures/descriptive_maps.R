@@ -67,6 +67,9 @@ descriptive_maps <- function(
   
   #Layout and map decorations
   tm +
+    tm_shape(bristol) +
+    tm_borders(col = "white", lwd = 4) +
+    tm_borders(col = "black", lwd = 2) +
     tm_scalebar(position = c("right", "bottom")) +
     tm_compass(type = "arrow", position = c("right", "top")) +
     tm_layout(
@@ -125,6 +128,11 @@ england <- sf::st_read("./LSOA 2021/LSOA/LSOA_2021_EW_BGC.shp")
 #restrict to BNSSG only
 bnssg_map <- england[england$LSOA21CD %in% bnssg_lsoas, ]
 
+#pull out Bristol for mapping purposes
+bristol <- bnssg_map %>%
+  filter(grepl("^Bristol", LSOA21NM)) %>%
+  summarise()
+
 #join in csv data
 bnssg <- bnssg_map |>
   dplyr::left_join(bnssg_csv, by = "LSOA21CD")
@@ -147,8 +155,8 @@ map_specs <- tribble(
   ~var, ~palette, ~style, ~n_classes, ~breaks, ~midpoint, ~legend_title, ~filename,
   
   #CMS Segment 4–5
-  "swd_pct_seg4_5",      "viridis",  "quantile", 5, NA,   NA, "% in segment 4–5", "seg45_pct.png",
-  "above10",             c("lightblue","pink"), NULL, 2, NA,   NA, ">10% in seg 4–5", "seg45_above10.png",
+  "swd_pct_seg4_5",      "-RdBu",  "quantile", 5, NA,   NA, "% in segment 4–5", "seg45_pct.png",
+  "above10",             "-RdBu", NULL, 2, NA,   NA, ">10% in seg 4–5", "seg45_above10.png",
   "recentred",           "-RdBu",    "quantile", 5, NA,   0,  "Recentred (10% = 0)", "seg45_recentred.png",
   
   #yoy change in seg 4-5
@@ -167,7 +175,7 @@ map_specs <- tribble(
   "white", "viridis", "quantile", 5, NA, NA, "% White", "pct_white.png",
   
   #Mean CMS
-  "swd_mean_cms", "viridis", "quantile", 5, NA, NA, "Mean CMS", "mean_cms.png",
+  "swd_mean_cms", "-RdBu", "quantile", 5, NA, NA, "Mean CMS", "mean_cms.png",
   
   #mean CMS yoy
   "swd_mean_cms_yoy_change", "-RdBu", "fixed", NA,
