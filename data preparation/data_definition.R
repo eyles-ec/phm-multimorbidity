@@ -47,15 +47,15 @@ source("paths.R")
 setwd(wd)
 
 #load all linked data (see https://github.com/eyles-ec/epri-england/data_linkages)
-all <- read.csv("./linked/all_england_combined_CSV.csv")
+all <- read.csv("./linked/all_england_combined_CSV_new.csv")
 
 #remove uneeded columns by keeping project-relevant covariates
 all <- all %>%
   select(LSOA21CD, population, households, popden, unemp, good_health, fair_health, poor_health, asian, black, mixed, white, 
-         other, IMD25, IMD25_decile, benzene_2024_mean_ugm3, nox_2024_mean_ugm3, ozone_2024days_over_120ugm3,
-         pm10_2024_mean_ugm3, pm2_5_2024_mean_ugm3, so2_2024_mean_ugm3, total_road_m, n_intersections, area_km2, 
+         other, over64, IMD25, IMD25_decile, urban_rural, all_ug_km, all_oh_km, benzene_2024_mean_ugm3, nox_2024_mean_ugm3, ozone_2024days_over_120ugm3,
+         pm10_2024_mean_ugm3, pm2_5_2024_mean_ugm3, so2_2024_mean_ugm3, total_road_m, n_intersections, area_km2.x, 
          road_density_km_per_km2, intersection_density_per_km2, chn2024, Agriculture, Forest..open.land.and.water, 
-         Outdoor.recreation, Residential.gardens)
+         Outdoor.recreation, Residential.gardens, radon_no_action, radon_basic_action, radon_full_action)
 
 #load in BNSSG data
 
